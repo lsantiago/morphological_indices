@@ -1,0 +1,19 @@
+[general]
+name=Índices Morfológicos
+qgisMinimumVersion=3.16
+description=Herramientas para calcular índices morfológicos de cuencas hidrográficas
+version=1.0
+author=UTPL
+email=desarrollador@utpl.edu.ec
+about=Este plugin proporciona herramientas especializadas para el cálculo de índices morfológicos en cuencas hidrográficas, incluyendo:
+    - Cálculo de elongación de cuencas utilizando la relación entre área y distancia máxima
+    - Cálculo de gradiente longitudinal de ríos con visualización gráfica
+    - Análisis geomorfológico automatizado con clasificación de resultados
+    - Generación automática de reportes y estadísticas
+tracker=https://github.com/utpl/indices_morfologicos/issues
+repository=https://github.com/utpl/indices_morfologicos
+homepage=https://github.com/utpl/indices_morfologicos
+category=Analysis
+tags=geomorphology,hydrology,basin,morphology,analysis,cuenca,geomorfologia
+experimental=False
+deprecated=False

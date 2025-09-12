@@ -1,0 +1,2 @@
+<!-- Placeholder para icon.png -->
+NOTA: Debes reemplazar este archivo con un icon.png de 24x24 píxeles
