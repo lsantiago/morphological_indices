@@ -68,22 +68,12 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
             )
         )
         
-        # Tipo de visualización
-        opciones_visualizacion = [
-            self.tr('Gráfico de barras interactivo'),
-            self.tr('Mapa temático con simbología'),
-            self.tr('Layout automático en QGIS'),
-            self.tr('Reporte HTML completo'),
-            self.tr('Archivo de imagen (gráfico)')
-        ]
-        
+        # Tipo de visualización - SOLO REPORTE HTML
         self.addParameter(
-            QgsProcessingParameterEnum(
+            QgsProcessingParameterBoolean(
                 self.TIPO_VISUALIZACION,
-                self.tr('Tipo de visualización'),
-                options=opciones_visualizacion,
-                defaultValue=0,
-                optional=False
+                self.tr('Generar reporte HTML interactivo completo'),
+                defaultValue=True
             )
         )
         
@@ -119,7 +109,7 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
     def processAlgorithm(self, parameters, context, feedback):
         # ===== MARCADORES DE VERSIÓN =====
         feedback.pushInfo("=" * 70)
-        feedback.pushInfo("🚀 EJECUTANDO ELONGACIÓN VERSIÓN 4.0 - MIGRACIÓN DESDE ARCGIS")
+        feedback.pushInfo("🚀 EJECUTANDO ELONGACIÓN VERSIÓN 2.0 - ANÁLISIS GEOMORFOLÓGICO QGIS")
         feedback.pushInfo("=" * 70)
         
         try:
@@ -127,12 +117,12 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
             cuencas_layer = self.parameterAsVectorLayer(parameters, self.INPUT_CUENCAS, context)
             puntos_layer = self.parameterAsVectorLayer(parameters, self.INPUT_PUNTOS, context)
             generar_viz = self.parameterAsBool(parameters, self.GENERAR_VISUALIZACION, context)
-            tipo_viz = self.parameterAsInt(parameters, self.TIPO_VISUALIZACION, context)
+            generar_html = self.parameterAsBool(parameters, self.TIPO_VISUALIZACION, context)
             archivo_salida = self.parameterAsFileOutput(parameters, self.ARCHIVO_SALIDA, context)
             generar_reporte = self.parameterAsBool(parameters, self.GENERAR_REPORTE, context)
             aplicar_simbologia = self.parameterAsBool(parameters, self.APLICAR_SIMBOLOGIA, context)
             
-            feedback.pushInfo("✅ V4.0: Parámetros obtenidos correctamente")
+            feedback.pushInfo("✅ Parámetros obtenidos correctamente")
             
             # Validar capas
             if not cuencas_layer.isValid():
@@ -157,10 +147,10 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
             campo_area = campos_cuencas
             campo_x, campo_y, campo_z = campos_puntos
             
-            feedback.pushInfo(f"V4.0: Usando campos - Área: {campo_area}, X: {campo_x}, Y: {campo_y}, Z: {campo_z}")
+            feedback.pushInfo(f"Usando campos - Área: {campo_area}, X: {campo_x}, Y: {campo_y}, Z: {campo_z}")
             
             # Procesar datos
-            feedback.pushInfo("📊 V4.0: Procesando cuencas y puntos...")
+            feedback.pushInfo("📊 Procesando cuencas y puntos...")
             datos_cuencas = self._leer_datos_cuencas(cuencas_layer, campo_area, feedback)
             datos_puntos = self._leer_datos_puntos(puntos_layer, campo_x, campo_y, campo_z, feedback)
             
@@ -168,18 +158,18 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
                 raise QgsProcessingException(self.tr("No se encontraron datos válidos para procesar"))
             
             # Agrupar puntos por cuenca y encontrar extremos
-            feedback.pushInfo("🔍 V4.0: Agrupando puntos por cuenca y encontrando extremos...")
+            feedback.pushInfo("🔍 Agrupando puntos por cuenca y encontrando extremos...")
             cuencas_con_puntos = self._agrupar_puntos_por_cuenca(datos_cuencas, datos_puntos, feedback)
             
             if not cuencas_con_puntos:
                 raise QgsProcessingException(self.tr("No se pudieron asociar puntos con cuencas"))
             
             # Calcular índices de elongación
-            feedback.pushInfo("📐 V4.0: Calculando índices de elongación...")
+            feedback.pushInfo("📐 Calculando índices de elongación...")
             resultados_elongacion = self._calcular_elongacion_todas_cuencas(cuencas_con_puntos, feedback)
             
             # Crear nueva capa de salida
-            feedback.pushInfo("🔧 V4.0: Creando nueva capa con resultados...")
+            feedback.pushInfo("🔧 Creando nueva capa con resultados...")
             output_path = self._crear_capa_elongacion(
                 cuencas_layer, resultados_elongacion, aplicar_simbologia, feedback
             )
@@ -187,17 +177,16 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
             # Calcular estadísticas
             estadisticas = self._calcular_estadisticas_elongacion(resultados_elongacion, feedback)
             
-            # Generar visualizaciones
-            if generar_viz:
-                feedback.pushInfo("🖼️ V4.0: Generando visualizaciones...")
-                self._generar_visualizaciones(
-                    resultados_elongacion, estadisticas, tipo_viz, 
-                    archivo_salida, context, feedback
+            # Generar reporte HTML si se solicita
+            if generar_html:
+                feedback.pushInfo("📄 Generando reporte HTML interactivo...")
+                self._generar_reporte_html_elongacion(
+                    resultados_elongacion, estadisticas, archivo_salida, feedback
                 )
             
-            # Generar reporte
+            # Generar reporte de texto si se solicita
             if generar_reporte:
-                feedback.pushInfo("📄 V4.0: Generando reporte detallado...")
+                feedback.pushInfo("📄 Generando reporte estadístico detallado...")
                 self._generar_reporte_elongacion(
                     resultados_elongacion, estadisticas, archivo_salida, feedback
                 )
@@ -206,7 +195,7 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
             self._mostrar_estadisticas_log(estadisticas, feedback)
             
             feedback.pushInfo("=" * 70)
-            feedback.pushInfo("🎉 ELONGACIÓN V4.0 - PROCESAMIENTO COMPLETADO EXITOSAMENTE")
+            feedback.pushInfo("🎉 ELONGACIÓN V2.0 - PROCESAMIENTO COMPLETADO EXITOSAMENTE")
             feedback.pushInfo(f"📊 Cuencas procesadas: {len(resultados_elongacion)}")
             feedback.pushInfo(f"📁 Archivo de salida: {output_path}")
             feedback.pushInfo("=" * 70)
@@ -214,9 +203,9 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
             return {}
             
         except Exception as e:
-            feedback.reportError(f"❌ V4.0: Error durante el procesamiento: {str(e)}")
+            feedback.reportError(f"❌ Error durante el procesamiento: {str(e)}")
             import traceback
-            feedback.pushInfo(f"🔧 V4.0 DEBUG: Traceback: {traceback.format_exc()}")
+            feedback.pushInfo(f"🔧 DEBUG: Traceback: {traceback.format_exc()}")
             return {}
     
     def _validar_campos_cuencas(self, layer):
@@ -265,7 +254,7 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
                 feedback.pushWarning(f"Error leyendo cuenca {feature.id()}: {e}")
                 continue
         
-        feedback.pushInfo(f"V4.0: {len(datos_cuencas)} cuencas válidas encontradas")
+        feedback.pushInfo(f"V2.0: {len(datos_cuencas)} cuencas válidas encontradas")
         return datos_cuencas
     
     def _leer_datos_puntos(self, layer, campo_x, campo_y, campo_z, feedback):
@@ -298,7 +287,7 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
                 feedback.pushWarning(f"Error leyendo punto {feature.id()}: {e}")
                 continue
         
-        feedback.pushInfo(f"V4.0: {len(puntos)} puntos válidos encontrados")
+        feedback.pushInfo(f"V2.0: {len(puntos)} puntos válidos encontrados")
         return puntos
     
     def _agrupar_puntos_por_cuenca(self, datos_cuencas, datos_puntos, feedback):
@@ -344,7 +333,7 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
                 'total_puntos': len(puntos_en_cuenca)
             }
         
-        feedback.pushInfo(f"V4.0: {len(cuencas_con_puntos)} cuencas con puntos válidos")
+        feedback.pushInfo(f"V2.0: {len(cuencas_con_puntos)} cuencas con puntos válidos")
         return cuencas_con_puntos
     
     def _calcular_elongacion_todas_cuencas(self, cuencas_con_puntos, feedback):
@@ -398,7 +387,7 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
                 feedback.pushWarning(f"Error calculando elongación para cuenca {area}: {e}")
                 continue
         
-        feedback.pushInfo(f"V4.0: Cálculos completados para {len(resultados)} cuencas")
+        feedback.pushInfo(f"V2.0: Cálculos completados para {len(resultados)} cuencas")
         return resultados
     
     def _clasificar_elongacion(self, indice):
@@ -444,17 +433,23 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
         for nombre, tipo, tipo_str, longitud, precision in campos_elongacion:
             fields.append(QgsField(nombre, tipo, tipo_str, longitud, precision))
         
-        # Determinar ubicación de salida
+        # Determinar ubicación de salida - MULTIPLATAFORMA usando pathlib
         from pathlib import Path
-        documentos = Path.home() / "Documents" / "Indices_Morfologicos" / "Resultados_Elongacion"
+        import os
+        
+        # Usar directorio home del usuario (funciona en Windows, Linux, macOS)
+        home_dir = Path.home()
+        documentos = home_dir / "Documents" / "Indices_Morfologicos" / "Resultados_Elongacion"
+        
+        # Crear directorio si no existe (multiplataforma)
         documentos.mkdir(parents=True, exist_ok=True)
         
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         nombre_archivo = f"elongacion_cuencas_poligonos_{timestamp}.shp"
         output_path = str(documentos / nombre_archivo)
         
-        feedback.pushInfo(f"📁 V4.0: Creando shapefile de polígonos en: {output_path}")
-        feedback.pushInfo(f"🗺️ V4.0: Preservando geometrías de cuencas para visualización")
+        feedback.pushInfo(f"📁 V2.0: Creando shapefile de polígonos en: {output_path}")
+        feedback.pushInfo(f"🗺️ V2.0: Preservando geometrías de cuencas para visualización")
         
         # Crear writer - MANTENER TIPO DE GEOMETRÍA ORIGINAL (Polígonos)
         writer = QgsVectorFileWriter(
@@ -478,7 +473,7 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
             if area_val is not None and area_val > 0:
                 area_to_feature[float(area_val)] = feature
         
-        feedback.pushInfo(f"📊 V4.0: Mapeando {len(area_to_feature)} polígonos de cuencas originales")
+        feedback.pushInfo(f"📊 V2.0: Mapeando {len(area_to_feature)} polígonos de cuencas originales")
         
         # Escribir features con geometrías de polígonos originales
         features_escritas = 0
@@ -534,9 +529,9 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
         del writer
         
         # Mostrar estadísticas de escritura
-        feedback.pushInfo(f"✅ V4.0: Polígonos de cuencas escritos: {features_escritas}/{len(resultados)}")
+        feedback.pushInfo(f"✅ V2.0: Polígonos de cuencas escritos: {features_escritas}/{len(resultados)}")
         if cuencas_sin_poligono > 0:
-            feedback.pushWarning(f"⚠️ V4.0: Cuencas sin polígono original: {cuencas_sin_poligono}")
+            feedback.pushWarning(f"⚠️ V2.0: Cuencas sin polígono original: {cuencas_sin_poligono}")
         
         # Cargar al proyecto con nombre descriptivo
         layer_name = f"Elongacion_Cuencas_Poligonos_{timestamp}"
@@ -544,23 +539,23 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
         
         if nueva_capa.isValid():
             # Verificar información básica de la capa SIN operaciones de interfaz
-            feedback.pushInfo(f"🔍 V4.0: Capa válida - CRS: {nueva_capa.crs().authid()}")
-            feedback.pushInfo(f"🔍 V4.0: Geometría: {nueva_capa.geometryType()}")
-            feedback.pushInfo(f"🔍 V4.0: Features: {nueva_capa.featureCount()}")
+            feedback.pushInfo(f"🔍 V2.0: Capa válida - CRS: {nueva_capa.crs().authid()}")
+            feedback.pushInfo(f"🔍 V2.0: Geometría: {nueva_capa.geometryType()}")
+            feedback.pushInfo(f"🔍 V2.0: Features: {nueva_capa.featureCount()}")
             
             # Verificar extent de manera segura
             try:
                 extent = nueva_capa.extent()
                 if not extent.isEmpty():
-                    feedback.pushInfo(f"🔍 V4.0: Extent válido: {extent.toString()}")
+                    feedback.pushInfo(f"🔍 V2.0: Extent válido: {extent.toString()}")
                 else:
-                    feedback.pushWarning("⚠️ V4.0: Extent vacío detectado")
+                    feedback.pushWarning("⚠️ V2.0: Extent vacío detectado")
             except Exception as e:
-                feedback.pushWarning(f"⚠️ V4.0: No se pudo calcular extent: {e}")
+                feedback.pushWarning(f"⚠️ V2.0: No se pudo calcular extent: {e}")
             
             # Aplicar simbología ANTES de agregar al proyecto
             if aplicar_simbologia:
-                feedback.pushInfo("🎨 V4.0: Aplicando simbología antes de cargar...")
+                feedback.pushInfo("🎨 V2.0: Aplicando simbología antes de cargar...")
                 self._aplicar_simbologia_elongacion_directa(nueva_capa, feedback)
             else:
                 # Simbología básica segura
@@ -568,14 +563,14 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
             
             # Agregar al proyecto de manera segura
             QgsProject.instance().addMapLayer(nueva_capa)
-            feedback.pushInfo(f"✅ V4.0: Capa '{layer_name}' agregada correctamente")
-            feedback.pushInfo(f"📊 V4.0: Total polígonos: {nueva_capa.featureCount()}")
+            feedback.pushInfo(f"✅ V2.0: Capa '{layer_name}' agregada correctamente")
+            feedback.pushInfo(f"📊 V2.0: Total polígonos: {nueva_capa.featureCount()}")
             
             # NO hacer operaciones de zoom/interfaz que pueden congelar QGIS
-            feedback.pushInfo("🗺️ V4.0: Capa lista para visualización manual")
+            feedback.pushInfo("🗺️ V2.0: Capa lista para visualización manual")
             
         else:
-            feedback.reportError("❌ V4.0: Capa no válida")
+            feedback.reportError("❌ V2.0: Capa no válida")
             if nueva_capa.error().summary():
                 feedback.reportError(f"❌ Error: {nueva_capa.error().summary()}")
         
@@ -605,7 +600,7 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
             renderer = QgsSingleSymbolRenderer(simbolo)
             capa.setRenderer(renderer)
             
-            feedback.pushInfo("🎨 V4.0: Simbología básica aplicada de manera segura")
+            feedback.pushInfo("🎨 V2.0: Simbología básica aplicada de manera segura")
             
         except Exception as e:
             feedback.pushWarning(f"Error en simbología básica: {e}")
@@ -644,7 +639,7 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
                 feedback.pushWarning(f"Error leyendo valores: {e}")
                 return False
             
-            feedback.pushInfo(f"🎨 V4.0: Clasificaciones encontradas: {list(valores_unicos)}")
+            feedback.pushInfo(f"🎨 V2.0: Clasificaciones encontradas: {list(valores_unicos)}")
             
             if not valores_unicos:
                 feedback.pushWarning("No se encontraron valores de clasificación")
@@ -670,7 +665,7 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
             if categorias:
                 renderer = QgsCategorizedSymbolRenderer('CLASIF_ELON', categorias)
                 capa.setRenderer(renderer)
-                feedback.pushInfo(f"🎨 V4.0: Simbología aplicada - {len(categorias)} categorías")
+                feedback.pushInfo(f"🎨 V2.0: Simbología aplicada - {len(categorias)} categorías")
                 return True
             else:
                 feedback.pushWarning("No se pudieron crear categorías")
@@ -681,30 +676,25 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
             return False
     
     def _aplicar_simbologia_elongacion(self, output_path, feedback):
-        """Aplica simbología automática por clasificación de elongación (método alternativo)"""
+        """Método alternativo simplificado para simbología"""
         try:
-            # Obtener la capa del proyecto por nombre
+            # Buscar la capa recién agregada
             capas = QgsProject.instance().mapLayers().values()
             capa_elongacion = None
             
-            # Buscar la capa por path o nombre
             for capa in capas:
-                if hasattr(capa, 'source') and output_path in capa.source():
-                    capa_elongacion = capa
-                    break
-                elif 'Elongacion_Cuencas_Poligonos' in capa.name():
+                if 'Elongacion_Cuencas_Poligonos' in capa.name():
                     capa_elongacion = capa
                     break
             
-            if not capa_elongacion:
-                feedback.pushWarning("No se pudo encontrar la capa para aplicar simbología alternativa")
+            if capa_elongacion:
+                return self._aplicar_simbologia_elongacion_directa(capa_elongacion, feedback)
+            else:
+                feedback.pushWarning("No se encontró la capa para simbología alternativa")
                 return False
             
-            # Usar el método directo
-            return self._aplicar_simbologia_elongacion_directa(capa_elongacion, feedback)
-            
         except Exception as e:
-            feedback.reportError(f"Error en simbología alternativa: {e}")
+            feedback.reportError(f"Error en método alternativo: {e}")
             return False
     
     def _calcular_estadisticas_elongacion(self, resultados, feedback):
@@ -982,115 +972,197 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
                 <title>Reporte Elongación V4.0 - UTPL</title>
                 <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
                 <style>
+                    * {{
+                        box-sizing: border-box;
+                    }}
                     body {{
-                        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                        font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
                         line-height: 1.6;
                         margin: 0;
                         padding: 20px;
-                        background-color: #f5f5f5;
+                        background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+                        color: #1a202c;
                     }}
                     .container {{
-                        max-width: 1400px;
+                        max-width: 1200px;
                         margin: 0 auto;
-                        background-color: white;
-                        padding: 30px;
-                        border-radius: 10px;
-                        box-shadow: 0 0 20px rgba(0,0,0,0.1);
+                        background: white;
+                        padding: 40px;
+                        border-radius: 12px;
+                        box-shadow: 0 10px 25px rgba(0,0,0,0.08);
+                        border: 1px solid #e2e8f0;
                     }}
                     .header {{
                         text-align: center;
-                        border-bottom: 3px solid #2c5aa0;
-                        padding-bottom: 20px;
-                        margin-bottom: 30px;
+                        border-bottom: 3px solid #2d3748;
+                        padding-bottom: 25px;
+                        margin-bottom: 35px;
+                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                        margin: -40px -40px 35px -40px;
+                        padding: 40px 40px 25px 40px;
+                        border-radius: 12px 12px 0 0;
+                        color: white;
                     }}
                     .header h1 {{
-                        color: #2c5aa0;
                         margin: 0;
-                        font-size: 2.5em;
+                        font-size: 2.8em;
+                        font-weight: 700;
+                        text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+                        font-family: 'Times New Roman', serif;
+                    }}
+                    .header p {{
+                        margin: 10px 0 5px 0;
+                        font-size: 1.1em;
+                        opacity: 0.95;
                     }}
                     .version-badge {{
-                        background-color: #28a745;
+                        background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
                         color: white;
-                        padding: 5px 15px;
-                        border-radius: 20px;
+                        padding: 8px 20px;
+                        border-radius: 25px;
                         font-size: 0.9em;
+                        font-weight: 600;
                         display: inline-block;
-                        margin-top: 10px;
+                        margin-top: 15px;
+                        box-shadow: 0 4px 8px rgba(0,0,0,0.2);
                     }}
                     .section {{
-                        margin: 30px 0;
-                        padding: 20px;
-                        background-color: #f8f9fa;
-                        border-radius: 8px;
-                        border-left: 4px solid #2c5aa0;
+                        margin: 35px 0;
+                        padding: 25px;
+                        background: #f8fafc;
+                        border-radius: 10px;
+                        border-left: 5px solid #4299e1;
+                        box-shadow: 0 2px 4px rgba(0,0,0,0.04);
                     }}
                     .section h2 {{
-                        color: #2c5aa0;
+                        color: #2d3748;
                         margin-top: 0;
+                        font-size: 1.6em;
+                        font-weight: 600;
+                        display: flex;
+                        align-items: center;
+                        gap: 10px;
                     }}
                     .stats-grid {{
                         display: grid;
-                        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+                        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
                         gap: 20px;
-                        margin: 20px 0;
+                        margin: 25px 0;
                     }}
                     .stat-card {{
-                        background-color: white;
-                        padding: 20px;
-                        border-radius: 8px;
-                        border-left: 4px solid #28a745;
-                        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                        background: white;
+                        padding: 25px;
+                        border-radius: 10px;
+                        border-left: 5px solid #48bb78;
+                        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+                        transition: transform 0.2s ease, box-shadow 0.2s ease;
+                    }}
+                    .stat-card:hover {{
+                        transform: translateY(-2px);
+                        box-shadow: 0 8px 15px rgba(0,0,0,0.1);
                     }}
                     .stat-value {{
-                        font-size: 2em;
-                        font-weight: bold;
-                        color: #2c5aa0;
+                        font-size: 2.2em;
+                        font-weight: 700;
+                        color: #2d3748;
                         margin: 0;
+                        font-family: 'Arial', sans-serif;
                     }}
                     .stat-label {{
-                        color: #666;
-                        margin: 5px 0 0 0;
-                        font-size: 0.9em;
+                        color: #718096;
+                        margin: 8px 0 0 0;
+                        font-size: 0.95em;
+                        font-weight: 500;
+                        text-transform: uppercase;
+                        letter-spacing: 0.5px;
                     }}
                     .tabla-cuencas {{
                         width: 100%;
                         border-collapse: collapse;
-                        margin: 20px 0;
+                        margin: 25px 0;
                         font-size: 0.9em;
-                    }}
-                    .tabla-cuencas th, .tabla-cuencas td {{
-                        border: 1px solid #ddd;
-                        padding: 8px;
-                        text-align: left;
+                        background: white;
+                        border-radius: 8px;
+                        overflow: hidden;
+                        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
                     }}
                     .tabla-cuencas th {{
-                        background-color: #2c5aa0;
+                        background: linear-gradient(135deg, #4a5568 0%, #2d3748 100%);
                         color: white;
-                        font-weight: bold;
+                        font-weight: 600;
+                        padding: 15px 12px;
+                        text-align: left;
+                        font-size: 0.85em;
+                        text-transform: uppercase;
+                        letter-spacing: 0.5px;
+                    }}
+                    .tabla-cuencas td {{
+                        padding: 12px;
+                        border-bottom: 1px solid #e2e8f0;
                     }}
                     .tabla-cuencas tr:nth-child(even) {{
-                        background-color: #f2f2f2;
+                        background-color: #f7fafc;
+                    }}
+                    .tabla-cuencas tr:hover {{
+                        background-color: #edf2f7;
                     }}
                     .grafico-container {{
                         margin: 30px 0;
-                        padding: 20px;
-                        background-color: white;
-                        border-radius: 8px;
-                        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                        padding: 25px;
+                        background: white;
+                        border-radius: 10px;
+                        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+                        border: 1px solid #e2e8f0;
                     }}
                     .footer {{
                         text-align: center;
-                        margin-top: 40px;
-                        padding-top: 20px;
-                        border-top: 1px solid #ddd;
-                        color: #666;
+                        margin-top: 50px;
+                        padding-top: 30px;
+                        border-top: 2px solid #e2e8f0;
+                        color: #718096;
+                        background: #f8fafc;
+                        margin-left: -40px;
+                        margin-right: -40px;
+                        margin-bottom: -40px;
+                        padding-left: 40px;
+                        padding-right: 40px;
+                        padding-bottom: 30px;
+                        border-radius: 0 0 12px 12px;
+                    }}
+                    .footer p {{
+                        margin: 8px 0;
                     }}
                     .interpretacion {{
-                        background-color: #e8f4f8;
-                        padding: 20px;
-                        border-radius: 8px;
-                        border-left: 4px solid #17a2b8;
-                        margin: 20px 0;
+                        background: linear-gradient(135deg, #e6fffa 0%, #b2f5ea 100%);
+                        padding: 25px;
+                        border-radius: 10px;
+                        border-left: 5px solid #38b2ac;
+                        margin: 25px 0;
+                        box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+                    }}
+                    .interpretacion h3 {{
+                        color: #234e52;
+                        margin-top: 0;
+                        font-size: 1.3em;
+                    }}
+                    .interpretacion ul {{
+                        color: #2c7a7b;
+                        line-height: 1.8;
+                    }}
+                    .interpretacion li {{
+                        margin-bottom: 8px;
+                    }}
+                    @media print {{
+                        body {{ background: white; }}
+                        .container {{ box-shadow: none; }}
+                        .header {{ background: #2d3748 !important; }}
+                    }}
+                    @media (max-width: 768px) {{
+                        .container {{ padding: 20px; margin: 10px; }}
+                        .header {{ margin: -20px -20px 25px -20px; padding: 30px 20px 20px 20px; }}
+                        .header h1 {{ font-size: 2.2em; }}
+                        .stats-grid {{ grid-template-columns: 1fr; }}
+                        .tabla-cuencas {{ font-size: 0.8em; }}
                     }}
                 </style>
             </head>
@@ -1098,7 +1170,7 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
                 <div class="container">
                     <div class="header">
                         <h1>Análisis de Elongación de Cuencas</h1>
-                        <div class="version-badge">Versión 4.0 Interactiva</div>
+                        <div class="version-badge">Versión 2.0 Interactiva</div>
                         <p>Universidad Técnica Particular de Loja - UTPL</p>
                         <p>Fecha de análisis: {estadisticas.get('fecha_analisis', 'N/A')}</p>
                     </div>
@@ -1126,10 +1198,17 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
                     </div>
                     
                     <div class="section">
-                        <h2>📈 Distribución de Clasificaciones</h2>
+                        <h2>📈 Análisis Morfométrico de Cuencas</h2>
                         <div class="grafico-container">
-                            <div id="grafico-barras" style="width:100%;height:500px;"></div>
+                            <div id="grafico-barras" style="width:100%;height:600px;margin-bottom:40px;"></div>
                         </div>
+                        <div class="grafico-container">
+                            <div id="grafico-circular" style="width:100%;height:500px;"></div>
+                        </div>
+                        <p style="text-align: center; margin-top: 20px; color: #666; font-style: italic;">
+                            <strong>Nota metodológica:</strong> Clasificación basada en Schumm (1956) mediante el índice Re = Diámetro equivalente / Distancia máxima.<br>
+                            El análisis considera la relación área-forma para caracterización geomorfológica de cuencas hidrográficas.
+                        </p>
                     </div>
                     
                     <div class="section">
@@ -1168,6 +1247,75 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
                     </div>
                     
                     <div class="section">
+                        <h2>📏 Tabla de Clasificación de Elongación</h2>
+                        <p><strong>Clasificación según Schumm (1956):</strong></p>
+                        <table class="tabla-cuencas" style="margin-top: 15px;">
+                            <thead>
+                                <tr>
+                                    <th>Clasificación</th>
+                                    <th>Rango del Índice (Re)</th>
+                                    <th>Descripción Morfológica</th>
+                                    <th>Características</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td><strong>Muy alargada</strong></td>
+                                    <td>Re &lt; 0.22</td>
+                                    <td>Forma muy estrecha y alargada</td>
+                                    <td>Cuencas con control estructural fuerte</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Alargada</strong></td>
+                                    <td>0.22 ≤ Re &lt; 0.30</td>
+                                    <td>Forma alargada</td>
+                                    <td>Topografía montañosa pronunciada</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Ligeramente alargada</strong></td>
+                                    <td>0.30 ≤ Re &lt; 0.37</td>
+                                    <td>Tendencia alargada</td>
+                                    <td>Desarrollo fluvial en terrenos inclinados</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Intermedia</strong></td>
+                                    <td>0.37 ≤ Re &lt; 0.45</td>
+                                    <td>Forma equilibrada</td>
+                                    <td>Topografía moderada, desarrollo maduro</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Ligeramente ensanchada</strong></td>
+                                    <td>0.45 ≤ Re ≤ 0.60</td>
+                                    <td>Tendencia ensanchada</td>
+                                    <td>Pendientes suaves, erosión moderada</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Ensanchada</strong></td>
+                                    <td>0.60 &lt; Re ≤ 0.80</td>
+                                    <td>Forma ensanchada</td>
+                                    <td>Control litológico horizontal</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Muy ensanchada</strong></td>
+                                    <td>0.80 &lt; Re ≤ 1.20</td>
+                                    <td>Forma muy ancha</td>
+                                    <td>Topografía muy suave</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Circular</strong></td>
+                                    <td>Re &gt; 1.20</td>
+                                    <td>Forma tendiendo a circular</td>
+                                    <td>Cuencas rodeando el punto de desagüe</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        <p style="margin-top: 15px; font-style: italic; color: #666;">
+                            <strong>Nota:</strong> Re = Índice de elongación = Diámetro equivalente / Distancia máxima<br>
+                            Donde: Diámetro equivalente = 2√(Área/π)
+                        </p>
+                    </div>
+                    
+                    <div class="section">
                         <h2>💡 Interpretación Geomorfológica</h2>
                         <div class="interpretacion">
                             {self._generar_interpretacion_elongacion_html(estadisticas)}
@@ -1175,7 +1323,7 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
                     </div>
                     
                     <div class="footer">
-                        <p><strong>Reporte generado automáticamente por el Plugin de Índices Morfológicos V4.0</strong></p>
+                        <p><strong>Reporte generado automáticamente por el Plugin de Índices Morfológicos V2.0</strong></p>
                         <p>Universidad Técnica Particular de Loja - Departamento de Ingeniería Civil</p>
                         <p>Basado en el trabajo de: Ing. Santiago Quiñones, Ing. María Fernanda Guarderas, Nelson Aranda</p>
                     </div>
@@ -1188,24 +1336,26 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
             </html>
             """
             
-            # Determinar ubicación de salida
+            # Determinar ubicación de salida - MULTIPLATAFORMA
             if archivo_salida and archivo_salida != 'TEMPORARY_OUTPUT':
                 if not archivo_salida.lower().endswith('.html'):
                     archivo_salida += '.html'
                 ruta_html = archivo_salida
             else:
                 from pathlib import Path
-                documentos = Path.home() / "Documents" / "Indices_Morfologicos" / "Reportes"
+                # Usar directorio home multiplataforma
+                home_dir = Path.home()
+                documentos = home_dir / "Documents" / "Indices_Morfologicos" / "Reportes"
                 documentos.mkdir(parents=True, exist_ok=True)
                 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                ruta_html = str(documentos / f"reporte_elongacion_v4_interactivo_{timestamp}.html")
+                ruta_html = str(documentos / f"reporte_elongacion_v2_interactivo_{timestamp}.html")
             
             with open(ruta_html, 'w', encoding='utf-8') as f:
                 f.write(html_content)
             
             # Abrir en navegador
             webbrowser.open(f"file://{ruta_html}")
-            feedback.pushInfo(f"📄 V4.0: Reporte HTML interactivo: {ruta_html}")
+            feedback.pushInfo(f"📄 V2.0: Reporte HTML interactivo: {ruta_html}")
                 
         except Exception as e:
             feedback.reportError(f"Error generando reporte HTML: {e}")
@@ -1232,66 +1382,272 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
         return tabla_html
     
     def _preparar_datos_grafico_html(self, estadisticas):
-        """Prepara datos JavaScript para gráfico Plotly"""
+        """Prepara datos JavaScript para gráfico Plotly profesional"""
         conteo = estadisticas['conteo_clasificaciones']
         porcentajes = estadisticas['porcentajes_clasificaciones']
         
-        clasificaciones = list(conteo.keys())
-        valores = list(conteo.values())
-        porcentajes_vals = [porcentajes[clasif] for clasif in clasificaciones]
+        # Ordenar las clasificaciones según el índice de elongación (de menos a más elongada)
+        orden_clasificaciones = [
+            "Rodeando el desagüe",
+            "Muy ensanchada", 
+            "Ensanchada",
+            "Ligeramente ensanchada",
+            "Ni alargada ni ensanchada",
+            "Ligeramente alargada",
+            "Alargada",
+            "Muy alargada"
+        ]
         
-        colores = ['#8B0000', '#FF4500', '#FF8C00', '#FFD700', '#ADFF2F', '#00FF7F', '#00BFFF', '#1E90FF']
+        # Filtrar solo las que existen en los datos
+        clasificaciones_existentes = [c for c in orden_clasificaciones if c in conteo]
+        valores = [conteo[c] for c in clasificaciones_existentes]
+        porcentajes_vals = [porcentajes[c] for c in clasificaciones_existentes]
+        
+        # Colores profesionales según el espectro científico estándar
+        colores_profesionales = {
+            "Muy alargada": "#8B0000",           # Rojo oscuro
+            "Alargada": "#DC143C",               # Crimson
+            "Ligeramente alargada": "#FF6347",    # Tomate
+            "Ni alargada ni ensanchada": "#FFD700", # Dorado
+            "Ligeramente ensanchada": "#9ACD32",  # Verde amarillo
+            "Ensanchada": "#32CD32",             # Verde lima
+            "Muy ensanchada": "#1E90FF",         # Azul Dodger
+            "Rodeando el desagüe": "#4169E1"     # Azul real
+        }
+        
+        colores = [colores_profesionales.get(c, "#808080") for c in clasificaciones_existentes]
+        
+        # Abreviaciones para mejor presentación en gráfico
+        clasificaciones_abrev = []
+        for c in clasificaciones_existentes:
+            if c == "Ni alargada ni ensanchada":
+                clasificaciones_abrev.append("Intermedia")
+            elif c == "Ligeramente alargada":
+                clasificaciones_abrev.append("Lig. alargada")
+            elif c == "Ligeramente ensanchada":
+                clasificaciones_abrev.append("Lig. ensanchada")
+            elif c == "Rodeando el desagüe":
+                clasificaciones_abrev.append("Circular")
+            elif c == "Muy alargada":
+                clasificaciones_abrev.append("Muy alargada")
+            elif c == "Muy ensanchada":
+                clasificaciones_abrev.append("Muy ensanchada")
+            else:
+                clasificaciones_abrev.append(c)
         
         script_js = f"""
-        var clasificaciones = {clasificaciones};
+        // Datos del análisis morfométrico
+        var clasificaciones_completas = {clasificaciones_existentes};
+        var clasificaciones_display = {clasificaciones_abrev};
         var valores = {valores};
         var porcentajes = {porcentajes_vals};
-        var colores = {colores[:len(clasificaciones)]};
+        var colores = {colores};
         
-        var datos_barras = [{{
-            x: clasificaciones,
+        // Configuración del gráfico principal
+        var trace_barras = {{
+            x: clasificaciones_display,
             y: valores,
             type: 'bar',
             marker: {{
                 color: colores,
-                opacity: 0.8
+                opacity: 0.85,
+                line: {{
+                    color: '#2F2F2F',
+                    width: 1.2
+                }}
             }},
-            text: valores.map(v => v.toString()),
-            textposition: 'auto',
-            hovertemplate: '<b>%{{x}}</b><br>Cuencas: %{{y}}<br>Porcentaje: %{{customdata:.1f}}%<extra></extra>',
-            customdata: porcentajes
-        }}];
+            text: valores.map((v, i) => `${{v}} cuencas<br>(${{porcentajes[i].toFixed(1)}}%)`),
+            textposition: 'outside',
+            textfont: {{
+                family: 'Arial, sans-serif',
+                size: 11,
+                color: '#2F2F2F'
+            }},
+            hovertemplate: 
+                '<b>%{{data.name}}: %{{x}}</b><br>' +
+                'Número de cuencas: %{{y}}<br>' +
+                'Porcentaje: %{{customdata:.1f}}%<br>' +
+                '<extra></extra>',
+            customdata: porcentajes,
+            name: 'Distribución Morfométrica'
+        }};
         
-        var layout = {{
+        // Layout profesional estilo paper científico
+        var layout_principal = {{
             title: {{
-                text: 'Distribución de Cuencas por Clasificación de Elongación',
-                font: {{ size: 18, color: '#2c5aa0' }}
+                text: 'Distribución Morfométrica de Cuencas Hidrográficas<br><sub>Índice de Elongación según Schumm (1956)</sub>',
+                font: {{ 
+                    family: 'Times New Roman, serif',
+                    size: 16, 
+                    color: '#1f2937',
+                    weight: 'bold'
+                }},
+                x: 0.5,
+                y: 0.95
             }},
             xaxis: {{
-                title: 'Clasificación de Elongación',
-                tickangle: -45
+                title: {{
+                    text: 'Clasificación Morfométrica',
+                    font: {{ family: 'Arial, sans-serif', size: 13, color: '#374151' }}
+                }},
+                tickangle: -35,
+                tickfont: {{ family: 'Arial, sans-serif', size: 10, color: '#4B5563' }},
+                showgrid: false,
+                showline: true,
+                linecolor: '#D1D5DB',
+                linewidth: 1,
+                mirror: true
             }},
             yaxis: {{
-                title: 'Número de Cuencas'
+                title: {{
+                    text: 'Número de Cuencas',
+                    font: {{ family: 'Arial, sans-serif', size: 13, color: '#374151' }}
+                }},
+                tickfont: {{ family: 'Arial, sans-serif', size: 10, color: '#4B5563' }},
+                showgrid: true,
+                gridcolor: '#F3F4F6',
+                gridwidth: 1,
+                showline: true,
+                linecolor: '#D1D5DB',
+                linewidth: 1,
+                mirror: true,
+                zeroline: false
             }},
-            plot_bgcolor: '#fafafa',
+            plot_bgcolor: 'white',
             paper_bgcolor: 'white',
-            showlegend: false
+            showlegend: false,
+            margin: {{
+                l: 80,
+                r: 40,
+                t: 100,
+                b: 120
+            }},
+            font: {{
+                family: 'Arial, sans-serif'
+            }},
+            annotations: [
+                {{
+                    text: 'Re = Diámetro equivalente / Distancia máxima',
+                    showarrow: false,
+                    x: 0.5,
+                    y: -0.25,
+                    xref: 'paper',
+                    yref: 'paper',
+                    font: {{
+                        family: 'Arial, sans-serif',
+                        size: 10,
+                        color: '#6B7280',
+                        style: 'italic'
+                    }}
+                }},
+                {{
+                    text: 'n = {estadisticas.get("total_cuencas", 0)} cuencas analizadas',
+                    showarrow: false,
+                    x: 0.02,
+                    y: 0.98,
+                    xref: 'paper',
+                    yref: 'paper',
+                    font: {{
+                        family: 'Arial, sans-serif',
+                        size: 10,
+                        color: '#6B7280'
+                    }}
+                }}
+            ]
         }};
         
-        var config = {{
+        // Configuración de herramientas profesional
+        var config_principal = {{
             displayModeBar: true,
             displaylogo: false,
+            modeBarButtonsToRemove: [
+                'zoom2d', 'pan2d', 'select2d', 'lasso2d', 'zoomIn2d', 'zoomOut2d',
+                'autoScale2d', 'resetScale2d', 'hoverClosestCartesian', 'hoverCompareCartesian'
+            ],
             toImageButtonOptions: {{
                 format: 'png',
-                filename: 'elongacion_cuencas_v4',
-                height: 500,
-                width: 800,
-                scale: 2
-            }}
+                filename: 'distribucion_morfometrica_cuencas',
+                height: 600,
+                width: 900,
+                scale: 3
+            }},
+            locale: 'es'
         }};
         
-        Plotly.newPlot('grafico-barras', datos_barras, layout, config);
+        // Crear gráfico principal
+        Plotly.newPlot('grafico-barras', [trace_barras], layout_principal, config_principal);
+        
+        // Gráfico circular complementario (pie chart)
+        var trace_circular = {{
+            labels: clasificaciones_display,
+            values: porcentajes,
+            type: 'pie',
+            marker: {{
+                colors: colores,
+                line: {{
+                    color: '#FFFFFF',
+                    width: 2
+                }}
+            }},
+            textinfo: 'label+percent',
+            textposition: 'outside',
+            textfont: {{
+                family: 'Arial, sans-serif',
+                size: 11
+            }},
+            hovertemplate: 
+                '<b>%{{label}}</b><br>' +
+                'Porcentaje: %{{percent}}<br>' +
+                'Cuencas: %{{value:.1f}}%<br>' +
+                '<extra></extra>',
+            hole: 0.3
+        }};
+        
+        var layout_circular = {{
+            title: {{
+                text: 'Distribución Porcentual<br><sub>Análisis Morfométrico Regional</sub>',
+                font: {{ 
+                    family: 'Times New Roman, serif',
+                    size: 14, 
+                    color: '#1f2937'
+                }},
+                x: 0.5,
+                y: 0.95
+            }},
+            showlegend: true,
+            legend: {{
+                orientation: 'v',
+                x: 1.02,
+                y: 0.5,
+                font: {{
+                    family: 'Arial, sans-serif',
+                    size: 10
+                }}
+            }},
+            margin: {{
+                l: 20,
+                r: 120,
+                t: 80,
+                b: 20
+            }},
+            paper_bgcolor: 'white',
+            annotations: [
+                {{
+                    text: 'Total:<br>{estadisticas.get("total_cuencas", 0)}<br>cuencas',
+                    showarrow: false,
+                    x: 0.5,
+                    y: 0.5,
+                    font: {{
+                        family: 'Arial, sans-serif',
+                        size: 12,
+                        color: '#374151'
+                    }}
+                }}
+            ]
+        }};
+        
+        // Crear gráfico circular
+        Plotly.newPlot('grafico-circular', [trace_circular], layout_circular, config_principal);
         """
         
         return script_js
@@ -1348,9 +1704,9 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
     def _crear_texto_estadisticas_layout(self, estadisticas):
         """Crea texto formateado para layout QGIS"""
         if "error" in estadisticas:
-            return "Error en estadísticas V4.0"
+            return "Error en estadísticas V2.0"
         
-        texto = f"""ESTADÍSTICAS ELONGACIÓN V4.0
+        texto = f"""ESTADÍSTICAS ELONGACIÓN V2.0
 
 Total cuencas: {estadisticas.get('total_cuencas', 0)}
 Área total: {estadisticas.get('area_total', 0):.2f}
@@ -1371,17 +1727,19 @@ PREDOMINANTE:
         """Genera reporte estadístico detallado en archivo de texto"""
         try:
             if archivo_salida and archivo_salida != 'TEMPORARY_OUTPUT':
-                archivo_reporte = archivo_salida.replace('.png', '_reporte_v4.txt').replace('.pdf', '_reporte_v4.txt')
+                archivo_reporte = archivo_salida.replace('.png', '_reporte_v2.txt').replace('.pdf', '_reporte_v2.txt')
             else:
                 from pathlib import Path
-                documentos = Path.home() / "Documents" / "Indices_Morfologicos" / "Reportes"
+                # Usar directorio home multiplataforma
+                home_dir = Path.home()
+                documentos = home_dir / "Documents" / "Indices_Morfologicos" / "Reportes"
                 documentos.mkdir(parents=True, exist_ok=True)
                 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                archivo_reporte = str(documentos / f"reporte_elongacion_v4_{timestamp}.txt")
+                archivo_reporte = str(documentos / f"reporte_elongacion_v2_{timestamp}.txt")
             
             with open(archivo_reporte, 'w', encoding='utf-8') as f:
                 f.write("="*80 + "\n")
-                f.write("REPORTE ANÁLISIS ELONGACIÓN DE CUENCAS V4.0\n")
+                f.write("REPORTE ANÁLISIS ELONGACIÓN DE CUENCAS V2.0\n")
                 f.write("Universidad Técnica Particular de Loja - UTPL\n")
                 f.write("="*80 + "\n\n")
                 f.write(f"Fecha: {estadisticas.get('fecha_analisis', 'N/A')}\n\n")
@@ -1418,9 +1776,9 @@ PREDOMINANTE:
                            f"{resultado['indice_elongacion']:.4f}\t\t{resultado['clasificacion']}\n")
                 
                 f.write("\n" + "="*80 + "\n")
-                f.write("Fin del reporte V4.0\n")
+                f.write("Fin del reporte V2.0\n")
             
-            feedback.pushInfo(f"📄 V4.0: Reporte detallado: {archivo_reporte}")
+            feedback.pushInfo(f"📄 V2.0: Reporte detallado: {archivo_reporte}")
             
         except Exception as e:
             feedback.reportError(f"Error generando reporte: {e}")
@@ -1428,11 +1786,11 @@ PREDOMINANTE:
     def _mostrar_estadisticas_log(self, estadisticas, feedback):
         """Muestra estadísticas completas en el log"""
         if "error" in estadisticas:
-            feedback.reportError("V4.0: No se pudieron calcular estadísticas válidas")
+            feedback.reportError("V2.0: No se pudieron calcular estadísticas válidas")
             return
         
         feedback.pushInfo("=" * 60)
-        feedback.pushInfo("📊 ESTADÍSTICAS ELONGACIÓN V4.0")
+        feedback.pushInfo("📊 ESTADÍSTICAS ELONGACIÓN")
         feedback.pushInfo("=" * 60)
         feedback.pushInfo(f"Total de cuencas: {estadisticas['total_cuencas']}")
         feedback.pushInfo(f"Área total analizada: {estadisticas['area_total']:.2f}")
@@ -1464,10 +1822,10 @@ PREDOMINANTE:
         feedback.pushInfo("=" * 60)
     
     def name(self):
-        return 'elongacion_v4'
+        return 'elongacion_v2'
         
     def displayName(self):
-        return self.tr('Calcular Elongación V4.0 🚀')
+        return self.tr('Calcular Elongación V2.0 🚀')
         
     def group(self):
         return self.tr('Índices Morfológicos')
@@ -1477,54 +1835,50 @@ PREDOMINANTE:
         
     def shortHelpString(self):
         return self.tr('''
-        <h3>🚀 Cálculo de Elongación de Cuencas - VERSIÓN 4.0</h3>
+        <h3>Cálculo de Elongación de Cuencas V2.0</h3>
         
-        <p><b>Migración completa desde ArcGIS con mejoras sustanciales.</b><br>
-        Calcula el índice de elongación de cuencas hidrográficas analizando la relación 
-        entre área y distancia máxima entre puntos extremos de elevación.</p>
+        <p>Calcula el índice de elongación de cuencas hidrográficas analizando la relación 
+        entre el área de la cuenca y la distancia máxima entre puntos extremos de elevación.</p>
         
-        <h4>✨ Características V4.0:</h4>
+        <h4>Método:</h4>
+        <p><strong>Re = Diámetro equivalente / Distancia máxima</strong><br>
+        Donde: Diámetro equivalente = 2√(Área/π)</p>
+        
+        <h4>Datos de entrada:</h4>
         <ul>
-        <li><b>🔧 Sin errores de parámetros:</b> Creación directa de archivos independientes</li>
-        <li><b>📁 Organización automática:</b> Carpetas en Documents/Indices_Morfologicos/</li>
-        <li><b>🎯 Carga automática:</b> Nueva capa agregada al proyecto con simbología</li>
-        <li><b>🎨 Simbología automática:</b> Colores por clasificación de elongación</li>
-        <li><b>📊 Visualizaciones múltiples:</b> Gráficos, mapas, layouts y reportes HTML</li>
-        <li><b>🔍 Análisis estadístico:</b> Distribuciones y interpretación automática</li>
+        <li><strong>Polígonos de cuencas:</strong> Capa vectorial con campo de área (Shape_Area)</li>
+        <li><strong>Puntos con elevación:</strong> Capa vectorial con coordenadas X, Y, Z</li>
         </ul>
         
-        <h4>📋 Datos de entrada:</h4>
+        <h4>Resultados:</h4>
         <ul>
-        <li><b>Polígonos de cuencas:</b> Capa con campo Shape_Area</li>
-        <li><b>Puntos con elevación:</b> Capa con campos X, Y, Z</li>
+        <li><strong>Shapefile de cuencas:</strong> Polígonos con análisis de elongación</li>
+        <li><strong>Simbología automática:</strong> Colores por tipo de elongación</li>
+        <li><strong>Reporte HTML:</strong> Análisis estadístico con gráficos interactivos</li>
+        <li><strong>Reporte de texto:</strong> Datos tabulares detallados</li>
         </ul>
         
-        <h4>📊 Campos de salida:</h4>
+        <h4>Campos de salida principales:</h4>
         <ul>
-        <li><b>MINPOINT_X/Y/Z:</b> Coordenadas del punto de mínima elevación</li>
-        <li><b>MAXPOINT_X/Y/Z:</b> Coordenadas del punto de máxima elevación</li>
-        <li><b>DIST_MAX:</b> Distancia máxima entre puntos extremos</li>
-        <li><b>DIAMETRO_EQ:</b> Diámetro equivalente del círculo</li>
-        <li><b>VALOR_ELON:</b> Índice de elongación calculado</li>
-        <li><b>CLASIF_ELON:</b> Clasificación textual automática</li>
-        <li><b>AREA_CUENCA:</b> Área de referencia de la cuenca</li>
-        <li><b>NUM_PUNTOS:</b> Número de puntos analizados por cuenca</li>
+        <li><strong>VALOR_ELON:</strong> Índice de elongación calculado</li>
+        <li><strong>CLASIF_ELON:</strong> Clasificación morfológica (Muy alargada, Alargada, Intermedia, etc.)</li>
+        <li><strong>DIST_MAX:</strong> Distancia máxima entre puntos extremos</li>
+        <li><strong>MINPOINT/MAXPOINT:</strong> Coordenadas de puntos de elevación extrema</li>
         </ul>
         
-        <h4>🏷️ Clasificaciones de elongación:</h4>
-        <ul>
-        <li><b>Muy alargada:</b> Re < 0.22</li>
-        <li><b>Alargada:</b> 0.22 ≤ Re < 0.30</li>
-        <li><b>Ligeramente alargada:</b> 0.30 ≤ Re < 0.37</li>
-        <li><b>Ni alargada ni ensanchada:</b> 0.37 ≤ Re < 0.45</li>
-        <li><b>Ligeramente ensanchada:</b> 0.45 ≤ Re ≤ 0.60</li>
-        <li><b>Ensanchada:</b> 0.60 < Re ≤ 0.80</li>
-        <li><b>Muy ensanchada:</b> 0.80 < Re ≤ 1.20</li>
-        <li><b>Rodeando el desagüe:</b> Re > 1.20</li>
-        </ul>
+        <h4>Clasificación:</h4>
+        <p>El algoritmo clasifica las cuencas en 8 categorías desde "Muy alargada" (Re < 0.22) 
+        hasta "Circular" (Re > 1.20) según los rangos establecidos por Schumm (1956). 
+        La clasificación completa está disponible en el reporte HTML generado.</p>
         
-        <p><i>🎓 Universidad Técnica Particular de Loja - UTPL<br>
-        Basado en el trabajo de: Ing. Santiago Quiñones, Ing. María Fernanda Guarderas, Nelson Aranda</i></p>
+        <h4>Archivos de salida:</h4>
+        <p>Se guardan automáticamente en:<br>
+        <em>Documentos/Indices_Morfologicos/Resultados_Elongacion/</em></p>
+        
+        <p><strong>Nota:</strong> El algoritmo identifica automáticamente los puntos de máxima y mínima 
+        elevación dentro de cada cuenca para calcular la distancia máxima.</p>
+        
+        <p><em>Universidad Técnica Particular de Loja (UTPL)</em></p>
         ''')
         
     def tr(self, string):
