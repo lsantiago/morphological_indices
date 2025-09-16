@@ -1262,13 +1262,13 @@ PENDIENTE:
         
     def shortHelpString(self):
         return self.tr('''
-        <h3>🚀 Cálculo de Gradiente Longitudinal (SL-K) - VERSIÓN 4.0</h3>
+        <h3>🚀 Cálculo de Gradiente Longitudinal (SL-K) - VERSIÓN 2.0</h3>
         
         <p><b>Versión mejorada sin parámetros de salida problemáticos.</b><br>
         Calcula el gradiente longitudinal de ríos usando el índice SL-K y crea 
         automáticamente una nueva capa independiente.</p>
         
-        <h4>✨ Nuevas características V4.0:</h4>
+        <h4>✨ Nuevas características V2.0:</h4>
         <ul>
         <li><b>🔧 Sin errores de parameterAsSink:</b> Creación directa de archivos</li>
         <li><b>📁 Carpetas organizadas:</b> Resultados en Documents/Indices_Morfologicos/</li>
@@ -1293,7 +1293,8 @@ PENDIENTE:
         </ul>
         
         <p><i>🎓 Universidad Técnica Particular de Loja - UTPL<br>
-        Departamento de Ingeniería Civil</i></p>
+        Departamento de Ingeniería Civil <br>
+        Desarrollado por: Santiago Quiñones</i></p>
         ''')
         
     def tr(self, string):
