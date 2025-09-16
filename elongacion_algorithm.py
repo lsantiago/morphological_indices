@@ -4,8 +4,7 @@ from qgis.PyQt.QtGui import QDesktopServices
 from qgis.core import (QgsProcessing, QgsProcessingAlgorithm,
                        QgsProcessingParameterVectorLayer,
                        QgsProcessingParameterBoolean,
-                       QgsProcessingParameterEnum,
-                       QgsProcessingParameterFileDestination,
+                       QgsProcessingParameterVectorDestination,
                        QgsProcessingException,
                        QgsProject, QgsVectorLayer, QgsFields, QgsField,
                        QgsFeature, QgsVectorFileWriter, QgsCoordinateReferenceSystem,
@@ -14,7 +13,7 @@ from qgis.core import (QgsProcessing, QgsProcessingAlgorithm,
                        QgsCategorizedSymbolRenderer, QgsSimpleMarkerSymbolLayer,
                        QgsLayoutManager, QgsLayout, QgsLayoutItemMap,
                        QgsLayoutItemLabel, QgsLayoutSize, QgsLayoutPoint,
-                       QgsLayoutItemPicture, QgsUnitTypes)
+                       QgsLayoutItemPicture, QgsUnitTypes, QgsProcessingContext)
 from qgis.PyQt.QtCore import QVariant
 from qgis.PyQt.QtGui import QColor
 import processing
@@ -32,11 +31,8 @@ from collections import defaultdict
 class ElongacionAlgorithm(QgsProcessingAlgorithm):
     INPUT_CUENCAS = 'INPUT_CUENCAS'
     INPUT_PUNTOS = 'INPUT_PUNTOS'
-    GENERAR_VISUALIZACION = 'GENERAR_VISUALIZACION'
-    TIPO_VISUALIZACION = 'TIPO_VISUALIZACION'
-    ARCHIVO_SALIDA = 'ARCHIVO_SALIDA'
-    GENERAR_REPORTE = 'GENERAR_REPORTE'
-    APLICAR_SIMBOLOGIA = 'APLICAR_SIMBOLOGIA'
+    GENERAR_HTML = 'GENERAR_HTML'
+    OUTPUT_SHAPEFILE = 'OUTPUT_SHAPEFILE'
     
     def initAlgorithm(self, config=None):
         # Capa de entrada - polígonos de cuencas
@@ -59,50 +55,23 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
             )
         )
         
-        # Parámetro para generar visualización
+        # Parámetro para generar reporte HTML
         self.addParameter(
             QgsProcessingParameterBoolean(
-                self.GENERAR_VISUALIZACION,
-                self.tr('Generar visualización de elongación'),
+                self.GENERAR_HTML,
+                self.tr('Generar reporte HTML interactivo'),
                 defaultValue=True
             )
         )
         
-        # Tipo de visualización - SOLO REPORTE HTML
+        # Archivo de salida shapefile
         self.addParameter(
-            QgsProcessingParameterBoolean(
-                self.TIPO_VISUALIZACION,
-                self.tr('Generar reporte HTML interactivo completo'),
-                defaultValue=True
-            )
-        )
-        
-        # Archivo de salida para visualizaciones
-        self.addParameter(
-            QgsProcessingParameterFileDestination(
-                self.ARCHIVO_SALIDA,
-                self.tr('Archivo de salida (imagen/reporte)'),
-                fileFilter='PNG files (*.png);;PDF files (*.pdf);;HTML files (*.html)',
+            QgsProcessingParameterVectorDestination(
+                self.OUTPUT_SHAPEFILE,
+                self.tr('Archivo shapefile de salida'),
+                type=QgsProcessing.TypeVectorPolygon,
                 optional=True,
                 defaultValue=None
-            )
-        )
-        
-        # Generar reporte estadístico
-        self.addParameter(
-            QgsProcessingParameterBoolean(
-                self.GENERAR_REPORTE,
-                self.tr('Generar reporte estadístico detallado'),
-                defaultValue=True
-            )
-        )
-        
-        # Aplicar simbología automática
-        self.addParameter(
-            QgsProcessingParameterBoolean(
-                self.APLICAR_SIMBOLOGIA,
-                self.tr('Aplicar simbología automática por clasificación'),
-                defaultValue=True
             )
         )
     
@@ -116,11 +85,8 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
             # Obtener parámetros
             cuencas_layer = self.parameterAsVectorLayer(parameters, self.INPUT_CUENCAS, context)
             puntos_layer = self.parameterAsVectorLayer(parameters, self.INPUT_PUNTOS, context)
-            generar_viz = self.parameterAsBool(parameters, self.GENERAR_VISUALIZACION, context)
-            generar_html = self.parameterAsBool(parameters, self.TIPO_VISUALIZACION, context)
-            archivo_salida = self.parameterAsFileOutput(parameters, self.ARCHIVO_SALIDA, context)
-            generar_reporte = self.parameterAsBool(parameters, self.GENERAR_REPORTE, context)
-            aplicar_simbologia = self.parameterAsBool(parameters, self.APLICAR_SIMBOLOGIA, context)
+            generar_html = self.parameterAsBool(parameters, self.GENERAR_HTML, context)
+            output_shapefile = self.parameterAsOutputLayer(parameters, self.OUTPUT_SHAPEFILE, context)
             
             feedback.pushInfo("✅ Parámetros obtenidos correctamente")
             
@@ -171,7 +137,7 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
             # Crear nueva capa de salida
             feedback.pushInfo("🔧 Creando nueva capa con resultados...")
             output_path = self._crear_capa_elongacion(
-                cuencas_layer, resultados_elongacion, aplicar_simbologia, feedback
+                cuencas_layer, resultados_elongacion, output_shapefile, context, feedback
             )
             
             # Calcular estadísticas
@@ -181,14 +147,7 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
             if generar_html:
                 feedback.pushInfo("📄 Generando reporte HTML interactivo...")
                 self._generar_reporte_html_elongacion(
-                    resultados_elongacion, estadisticas, archivo_salida, feedback
-                )
-            
-            # Generar reporte de texto si se solicita
-            if generar_reporte:
-                feedback.pushInfo("📄 Generando reporte estadístico detallado...")
-                self._generar_reporte_elongacion(
-                    resultados_elongacion, estadisticas, archivo_salida, feedback
+                    resultados_elongacion, estadisticas, feedback
                 )
             
             # Mostrar estadísticas en log
@@ -200,7 +159,7 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
             feedback.pushInfo(f"📁 Archivo de salida: {output_path}")
             feedback.pushInfo("=" * 70)
             
-            return {}
+            return {self.OUTPUT_SHAPEFILE: output_path}
             
         except Exception as e:
             feedback.reportError(f"❌ Error durante el procesamiento: {str(e)}")
@@ -409,8 +368,8 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
         else:
             return "Rodeando el desagüe"
     
-    def _crear_capa_elongacion(self, input_layer, resultados, aplicar_simbologia, feedback):
-        """Crea nueva capa independiente con resultados de elongación preservando geometrías de cuencas"""
+    def _crear_capa_elongacion(self, input_layer, resultados, output_shapefile, context, feedback):
+        """Crea nueva capa independiente con resultados de elongación"""
         # Crear campos de salida - PRESERVAR TODOS LOS CAMPOS ORIGINALES
         fields = QgsFields(input_layer.fields())
         
@@ -433,32 +392,101 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
         for nombre, tipo, tipo_str, longitud, precision in campos_elongacion:
             fields.append(QgsField(nombre, tipo, tipo_str, longitud, precision))
         
-        # Determinar ubicación de salida - MULTIPLATAFORMA usando pathlib
-        from pathlib import Path
-        import os
+        # Determinar ubicación y formato de salida
+        if output_shapefile:
+            output_path = output_shapefile
+            # Detectar formato por extensión
+            if output_path.lower().endswith('.gpkg'):
+                driver_name = "GPKG"
+                feedback.pushInfo(f"📁 V2.0: Creando GeoPackage en: {output_path}")
+            elif output_path.lower().endswith('.shp'):
+                driver_name = "ESRI Shapefile"
+                feedback.pushInfo(f"📁 V2.0: Creando Shapefile en: {output_path}")
+            else:
+                # Por defecto usar el formato que QGIS espera
+                driver_name = "GPKG"
+                if not output_path.lower().endswith('.gpkg'):
+                    output_path = output_path + '.gpkg'
+                feedback.pushInfo(f"📁 V2.0: Creando GeoPackage (por defecto) en: {output_path}")
+        else:
+            # Usar sink temporal que QGIS maneja automáticamente
+            (sink, dest_id) = self.parameterAsSink(
+                parameters, 
+                self.OUTPUT_SHAPEFILE, 
+                context, 
+                fields, 
+                QgsWkbTypes.Polygon, 
+                input_layer.crs()
+            )
+            
+            if sink is None:
+                feedback.reportError("No se pudo crear sink temporal")
+                return None
+                
+            feedback.pushInfo(f"📁 V2.0: Usando sink temporal de QGIS: {dest_id}")
+            
+            # Crear diccionario para mapear áreas a features originales
+            area_to_feature = {}
+            for feature in input_layer.getFeatures():
+                area_val = feature[self._validar_campos_cuencas(input_layer)]
+                if area_val is not None and area_val > 0:
+                    area_to_feature[float(area_val)] = feature
+            
+            # Escribir features usando sink
+            features_escritas = 0
+            
+            for resultado in resultados:
+                try:
+                    area_cuenca = resultado['area']
+                    original_feature = area_to_feature.get(area_cuenca)
+                    
+                    if original_feature is None:
+                        continue
+                    
+                    # Crear nueva feature
+                    new_feature = QgsFeature(fields)
+                    
+                    # Copiar atributos originales
+                    for field in input_layer.fields():
+                        field_name = field.name()
+                        valor_original = original_feature[field_name]
+                        new_feature[field_name] = valor_original
+                    
+                    # Asignar valores calculados
+                    new_feature["MINPOINT_X"] = resultado['punto_min_x']
+                    new_feature["MINPOINT_Y"] = resultado['punto_min_y']
+                    new_feature["MINPOINT_Z"] = resultado['punto_min_z']
+                    new_feature["MAXPOINT_X"] = resultado['punto_max_x']
+                    new_feature["MAXPOINT_Y"] = resultado['punto_max_y']
+                    new_feature["MAXPOINT_Z"] = resultado['punto_max_z']
+                    new_feature["DIST_MAX"] = resultado['distancia_max']
+                    new_feature["DIAMETRO_EQ"] = resultado['diametro_equivalente']
+                    new_feature["VALOR_ELON"] = resultado['indice_elongacion']
+                    new_feature["CLASIF_ELON"] = resultado['clasificacion']
+                    new_feature["AREA_CUENCA"] = resultado['area']
+                    new_feature["NUM_PUNTOS"] = resultado['total_puntos']
+                    
+                    # Copiar geometría original
+                    new_feature.setGeometry(original_feature.geometry())
+                    
+                    if sink.addFeature(new_feature):
+                        features_escritas += 1
+                    
+                except Exception as e:
+                    feedback.pushWarning(f"Error escribiendo feature: {e}")
+                    continue
+            
+            feedback.pushInfo(f"✅ V2.0: Features escritas en sink: {features_escritas}/{len(resultados)}")
+            return dest_id
         
-        # Usar directorio home del usuario (funciona en Windows, Linux, macOS)
-        home_dir = Path.home()
-        documentos = home_dir / "Documents" / "Indices_Morfologicos" / "Resultados_Elongacion"
-        
-        # Crear directorio si no existe (multiplataforma)
-        documentos.mkdir(parents=True, exist_ok=True)
-        
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        nombre_archivo = f"elongacion_cuencas_poligonos_{timestamp}.shp"
-        output_path = str(documentos / nombre_archivo)
-        
-        feedback.pushInfo(f"📁 V2.0: Creando shapefile de polígonos en: {output_path}")
-        feedback.pushInfo(f"🗺️ V2.0: Preservando geometrías de cuencas para visualización")
-        
-        # Crear writer - MANTENER TIPO DE GEOMETRÍA ORIGINAL (Polígonos)
+        # Crear writer con el driver correcto (solo para rutas específicas)
         writer = QgsVectorFileWriter(
             output_path,
             "UTF-8",
             fields,
-            QgsWkbTypes.Polygon,  # FORZAR polígonos para visualización de cuencas
+            QgsWkbTypes.Polygon,
             input_layer.crs(),
-            "ESRI Shapefile"
+            driver_name
         )
         
         if writer.hasError() != QgsVectorFileWriter.NoError:
@@ -473,34 +501,27 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
             if area_val is not None and area_val > 0:
                 area_to_feature[float(area_val)] = feature
         
-        feedback.pushInfo(f"📊 V2.0: Mapeando {len(area_to_feature)} polígonos de cuencas originales")
-        
-        # Escribir features con geometrías de polígonos originales
+        # Escribir features
         features_escritas = 0
-        cuencas_sin_poligono = 0
         
         for resultado in resultados:
             try:
                 area_cuenca = resultado['area']
-                
-                # Buscar la feature original correspondiente por área
                 original_feature = area_to_feature.get(area_cuenca)
                 
                 if original_feature is None:
-                    feedback.pushWarning(f"No se encontró polígono original para cuenca con área {area_cuenca}")
-                    cuencas_sin_poligono += 1
                     continue
                 
-                # Crear nueva feature con campos expandidos
+                # Crear nueva feature
                 new_feature = QgsFeature(fields)
                 
-                # Copiar TODOS los atributos originales de la cuenca
+                # Copiar atributos originales
                 for field in input_layer.fields():
                     field_name = field.name()
                     valor_original = original_feature[field_name]
                     new_feature[field_name] = valor_original
                 
-                # Asignar valores calculados de elongación
+                # Asignar valores calculados
                 new_feature["MINPOINT_X"] = resultado['punto_min_x']
                 new_feature["MINPOINT_Y"] = resultado['punto_min_y']
                 new_feature["MINPOINT_Z"] = resultado['punto_min_z']
@@ -514,107 +535,36 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
                 new_feature["AREA_CUENCA"] = resultado['area']
                 new_feature["NUM_PUNTOS"] = resultado['total_puntos']
                 
-                # IMPORTANTE: Copiar la geometría ORIGINAL del polígono de cuenca
+                # Copiar geometría original
                 new_feature.setGeometry(original_feature.geometry())
                 
                 if writer.addFeature(new_feature):
                     features_escritas += 1
-                else:
-                    feedback.pushWarning(f"No se pudo escribir polígono para cuenca {area_cuenca}")
                 
             except Exception as e:
-                feedback.pushWarning(f"Error escribiendo polígono de cuenca: {e}")
+                feedback.pushWarning(f"Error escribiendo feature: {e}")
                 continue
         
         del writer
         
-        # Mostrar estadísticas de escritura
-        feedback.pushInfo(f"✅ V2.0: Polígonos de cuencas escritos: {features_escritas}/{len(resultados)}")
-        if cuencas_sin_poligono > 0:
-            feedback.pushWarning(f"⚠️ V2.0: Cuencas sin polígono original: {cuencas_sin_poligono}")
+        feedback.pushInfo(f"✅ V2.0: Features escritas: {features_escritas}/{len(resultados)}")
         
-        # Cargar al proyecto con nombre descriptivo
-        layer_name = f"Elongacion_Cuencas_Poligonos_{timestamp}"
+        # Cargar al proyecto solo si es ruta específica
+        layer_name = f"Elongacion_Cuencas_{datetime.now().strftime('%H%M%S')}"
         nueva_capa = QgsVectorLayer(output_path, layer_name, "ogr")
         
         if nueva_capa.isValid():
-            # Verificar información básica de la capa SIN operaciones de interfaz
-            feedback.pushInfo(f"🔍 V2.0: Capa válida - CRS: {nueva_capa.crs().authid()}")
-            feedback.pushInfo(f"🔍 V2.0: Geometría: {nueva_capa.geometryType()}")
-            feedback.pushInfo(f"🔍 V2.0: Features: {nueva_capa.featureCount()}")
-            
-            # Verificar extent de manera segura
-            try:
-                extent = nueva_capa.extent()
-                if not extent.isEmpty():
-                    feedback.pushInfo(f"🔍 V2.0: Extent válido: {extent.toString()}")
-                else:
-                    feedback.pushWarning("⚠️ V2.0: Extent vacío detectado")
-            except Exception as e:
-                feedback.pushWarning(f"⚠️ V2.0: No se pudo calcular extent: {e}")
-            
-            # Aplicar simbología ANTES de agregar al proyecto
-            if aplicar_simbologia:
-                feedback.pushInfo("🎨 V2.0: Aplicando simbología antes de cargar...")
-                self._aplicar_simbologia_elongacion_directa(nueva_capa, feedback)
-            else:
-                # Simbología básica segura
-                self._aplicar_simbologia_basica_segura(nueva_capa, feedback)
-            
-            # Agregar al proyecto de manera segura
+            # Aplicar simbología
+            self._aplicar_simbologia_elongacion(nueva_capa, feedback)
             QgsProject.instance().addMapLayer(nueva_capa)
             feedback.pushInfo(f"✅ V2.0: Capa '{layer_name}' agregada correctamente")
-            feedback.pushInfo(f"📊 V2.0: Total polígonos: {nueva_capa.featureCount()}")
-            
-            # NO hacer operaciones de zoom/interfaz que pueden congelar QGIS
-            feedback.pushInfo("🗺️ V2.0: Capa lista para visualización manual")
-            
-        else:
-            feedback.reportError("❌ V2.0: Capa no válida")
-            if nueva_capa.error().summary():
-                feedback.reportError(f"❌ Error: {nueva_capa.error().summary()}")
         
         return output_path
     
-    def _aplicar_simbologia_basica_segura(self, capa, feedback):
-        """Aplica simbología básica de manera segura sin operaciones de interfaz"""
+    def _aplicar_simbologia_elongacion(self, capa, feedback):
+        """Aplica simbología categorizada por clasificación de elongación"""
         try:
-            # Verificar que la capa tiene el campo necesario
-            field_names = [field.name() for field in capa.fields()]
-            if 'CLASIF_ELON' not in field_names:
-                feedback.pushWarning("Campo CLASIF_ELON no encontrado")
-                return
-            
-            # Crear símbolo básico pero visible
-            simbolo = QgsSymbol.defaultSymbol(capa.geometryType())
-            simbolo.setColor(QColor(70, 130, 180))  # Azul acero
-            simbolo.setOpacity(0.7)
-            
-            # Configurar borde
-            if simbolo.symbolLayer(0):
-                simbolo.symbolLayer(0).setStrokeColor(QColor(0, 0, 0))
-                simbolo.symbolLayer(0).setStrokeWidth(0.3)
-            
-            # Aplicar renderer simple
-            from qgis.core import QgsSingleSymbolRenderer
-            renderer = QgsSingleSymbolRenderer(simbolo)
-            capa.setRenderer(renderer)
-            
-            feedback.pushInfo("🎨 V2.0: Simbología básica aplicada de manera segura")
-            
-        except Exception as e:
-            feedback.pushWarning(f"Error en simbología básica: {e}")
-    
-    def _aplicar_simbologia_elongacion_directa(self, capa, feedback):
-        """Aplica simbología de elongación de manera segura"""
-        try:
-            # Verificar campo
-            field_names = [field.name() for field in capa.fields()]
-            if 'CLASIF_ELON' not in field_names:
-                feedback.pushWarning("Campo CLASIF_ELON no encontrado")
-                return False
-            
-            # Definir colores
+            # Colores por clasificación
             colores_clasificacion = {
                 "Muy alargada": QColor(139, 0, 0),
                 "Alargada": QColor(255, 69, 0),
@@ -626,38 +576,21 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
                 "Rodeando el desagüe": QColor(30, 144, 255)
             }
             
-            # Obtener valores únicos de manera segura
+            # Obtener valores únicos
             valores_unicos = set()
-            request = QgsFeatureRequest().setSubsetOfAttributes(['CLASIF_ELON'], capa.fields())
+            for feature in capa.getFeatures():
+                valor = feature['CLASIF_ELON']
+                if valor:
+                    valores_unicos.add(valor)
             
-            try:
-                for feature in capa.getFeatures(request):
-                    valor = feature['CLASIF_ELON']
-                    if valor and isinstance(valor, str):
-                        valores_unicos.add(valor)
-            except Exception as e:
-                feedback.pushWarning(f"Error leyendo valores: {e}")
-                return False
-            
-            feedback.pushInfo(f"🎨 V2.0: Clasificaciones encontradas: {list(valores_unicos)}")
-            
-            if not valores_unicos:
-                feedback.pushWarning("No se encontraron valores de clasificación")
-                return False
-            
-            # Crear categorías solo para valores existentes
+            # Crear categorías
             categorias = []
             for clasificacion in valores_unicos:
                 if clasificacion in colores_clasificacion:
                     color = colores_clasificacion[clasificacion]
                     simbolo = QgsSymbol.defaultSymbol(capa.geometryType())
                     simbolo.setColor(color)
-                    simbolo.setOpacity(0.8)
-                    
-                    # Borde negro para definición
-                    if simbolo.symbolLayer(0):
-                        simbolo.symbolLayer(0).setStrokeColor(QColor(0, 0, 0))
-                        simbolo.symbolLayer(0).setStrokeWidth(0.2)
+                    simbolo.setOpacity(0.7)
                     
                     categoria = QgsRendererCategory(clasificacion, simbolo, clasificacion)
                     categorias.append(categoria)
@@ -665,37 +598,10 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
             if categorias:
                 renderer = QgsCategorizedSymbolRenderer('CLASIF_ELON', categorias)
                 capa.setRenderer(renderer)
-                feedback.pushInfo(f"🎨 V2.0: Simbología aplicada - {len(categorias)} categorías")
-                return True
-            else:
-                feedback.pushWarning("No se pudieron crear categorías")
-                return False
+                feedback.pushInfo("🎨 V2.0: Simbología aplicada correctamente")
             
         except Exception as e:
-            feedback.reportError(f"Error en simbología categorizada: {e}")
-            return False
-    
-    def _aplicar_simbologia_elongacion(self, output_path, feedback):
-        """Método alternativo simplificado para simbología"""
-        try:
-            # Buscar la capa recién agregada
-            capas = QgsProject.instance().mapLayers().values()
-            capa_elongacion = None
-            
-            for capa in capas:
-                if 'Elongacion_Cuencas_Poligonos' in capa.name():
-                    capa_elongacion = capa
-                    break
-            
-            if capa_elongacion:
-                return self._aplicar_simbologia_elongacion_directa(capa_elongacion, feedback)
-            else:
-                feedback.pushWarning("No se encontró la capa para simbología alternativa")
-                return False
-            
-        except Exception as e:
-            feedback.reportError(f"Error en método alternativo: {e}")
-            return False
+            feedback.pushWarning(f"Error aplicando simbología: {e}")
     
     def _calcular_estadisticas_elongacion(self, resultados, feedback):
         """Calcula estadísticas completas de elongación"""
@@ -750,215 +656,10 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
         
         return estadisticas
     
-    def _generar_visualizaciones(self, resultados, estadisticas, tipo_viz, archivo_salida, context, feedback):
-        """Genera visualizaciones según el tipo seleccionado"""
-        
-        if tipo_viz == 0:  # Gráfico de barras interactivo
-            self._mostrar_grafico_barras_interactivo(estadisticas, feedback)
-        
-        elif tipo_viz == 1:  # Mapa temático (ya aplicado en simbología)
-            feedback.pushInfo("🗺️ V4.0: Mapa temático aplicado mediante simbología automática")
-        
-        elif tipo_viz == 2:  # Layout automático en QGIS
-            self._crear_layout_elongacion(resultados, estadisticas, context, feedback)
-        
-        elif tipo_viz == 3:  # Reporte HTML completo
-            self._generar_reporte_html_elongacion(resultados, estadisticas, archivo_salida, feedback)
-        
-        elif tipo_viz == 4:  # Archivo de imagen (gráfico)
-            self._guardar_grafico_barras_archivo(estadisticas, archivo_salida, feedback)
-    
-    def _mostrar_grafico_barras_interactivo(self, estadisticas, feedback):
-        """Muestra gráfico de barras interactivo con clasificaciones"""
+    def _generar_reporte_html_elongacion(self, resultados, estadisticas, feedback):
+        """Genera reporte HTML completo en directorio temporal"""
         try:
-            conteo = estadisticas['conteo_clasificaciones']
-            porcentajes = estadisticas['porcentajes_clasificaciones']
-            
-            # Configurar matplotlib para ventana interactiva
-            plt.ion()
-            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 8))
-            
-            # Gráfico de conteos
-            clasificaciones = list(conteo.keys())
-            valores = list(conteo.values())
-            colores = ['#8B0000', '#FF4500', '#FF8C00', '#FFD700', '#ADFF2F', '#00FF7F', '#00BFFF', '#1E90FF']
-            
-            bars1 = ax1.bar(range(len(clasificaciones)), valores, color=colores[:len(clasificaciones)])
-            ax1.set_xlabel('Clasificación de Elongación', fontsize=12, fontweight='bold')
-            ax1.set_ylabel('Número de Cuencas', fontsize=12, fontweight='bold')
-            ax1.set_title('Distribución de Cuencas por Clasificación\n(Conteo Absoluto)', fontsize=14, fontweight='bold')
-            ax1.set_xticks(range(len(clasificaciones)))
-            ax1.set_xticklabels(clasificaciones, rotation=45, ha='right')
-            ax1.grid(True, alpha=0.3)
-            
-            # Agregar valores sobre las barras
-            for bar, valor in zip(bars1, valores):
-                height = bar.get_height()
-                ax1.text(bar.get_x() + bar.get_width()/2., height + 0.1,
-                        f'{valor}', ha='center', va='bottom', fontweight='bold')
-            
-            # Gráfico de porcentajes
-            porcentajes_vals = [porcentajes[clasif] for clasif in clasificaciones]
-            bars2 = ax2.bar(range(len(clasificaciones)), porcentajes_vals, color=colores[:len(clasificaciones)])
-            ax2.set_xlabel('Clasificación de Elongación', fontsize=12, fontweight='bold')
-            ax2.set_ylabel('Porcentaje (%)', fontsize=12, fontweight='bold')
-            ax2.set_title('Distribución de Cuencas por Clasificación\n(Porcentajes)', fontsize=14, fontweight='bold')
-            ax2.set_xticks(range(len(clasificaciones)))
-            ax2.set_xticklabels(clasificaciones, rotation=45, ha='right')
-            ax2.grid(True, alpha=0.3)
-            ax2.set_ylim(0, 100)
-            
-            # Agregar valores sobre las barras
-            for bar, porcentaje in zip(bars2, porcentajes_vals):
-                height = bar.get_height()
-                ax2.text(bar.get_x() + bar.get_width()/2., height + 1,
-                        f'{porcentaje:.1f}%', ha='center', va='bottom', fontweight='bold')
-            
-            # Título general
-            fig.suptitle('Análisis de Elongación de Cuencas V4.0\nUniversidad Técnica Particular de Loja', 
-                        fontsize=16, fontweight='bold', y=0.95)
-            
-            plt.tight_layout()
-            plt.show()
-            
-            feedback.pushInfo("📊 V4.0: Gráfico interactivo mostrado exitosamente")
-            
-        except Exception as e:
-            feedback.reportError(f"Error mostrando gráfico interactivo: {e}")
-    
-    def _crear_layout_elongacion(self, resultados, estadisticas, context, feedback):
-        """Crea layout automático en QGIS"""
-        try:
-            # Crear gráfico temporal
-            temp_grafico = os.path.join(tempfile.gettempdir(), 
-                                      f"elongacion_grafico_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
-            
-            self._guardar_grafico_barras_archivo(estadisticas, temp_grafico, feedback)
-            
-            # Crear layout en QGIS
-            project = QgsProject.instance()
-            layout_manager = project.layoutManager()
-            layout_name = f"Elongacion_V4_0_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-            layout = QgsLayout(project)
-            layout.setName(layout_name)
-            
-            # Configurar página A4 horizontal
-            page = layout.pageCollection().page(0)
-            if page:
-                page.setPageSize(QgsLayoutSize(297, 210, QgsUnitTypes.LayoutMillimeters))
-            
-            # Título principal
-            titulo = QgsLayoutItemLabel(layout)
-            titulo.setText("Análisis de Elongación de Cuencas V4.0")
-            titulo.attemptResize(QgsLayoutSize(250, 15, QgsUnitTypes.LayoutMillimeters))
-            titulo.attemptMove(QgsLayoutPoint(20, 20, QgsUnitTypes.LayoutMillimeters))
-            layout.addLayoutItem(titulo)
-            
-            # Subtítulo
-            subtitulo = QgsLayoutItemLabel(layout)
-            subtitulo.setText("Universidad Técnica Particular de Loja - UTPL")
-            subtitulo.attemptResize(QgsLayoutSize(200, 10, QgsUnitTypes.LayoutMillimeters))
-            subtitulo.attemptMove(QgsLayoutPoint(20, 35, QgsUnitTypes.LayoutMillimeters))
-            layout.addLayoutItem(subtitulo)
-            
-            # Imagen del gráfico
-            if os.path.exists(temp_grafico):
-                imagen_grafico = QgsLayoutItemPicture(layout)
-                imagen_grafico.setPicturePath(temp_grafico)
-                imagen_grafico.attemptResize(QgsLayoutSize(180, 120, QgsUnitTypes.LayoutMillimeters))
-                imagen_grafico.attemptMove(QgsLayoutPoint(20, 50, QgsUnitTypes.LayoutMillimeters))
-                layout.addLayoutItem(imagen_grafico)
-            
-            # Estadísticas resumen
-            texto_stats = self._crear_texto_estadisticas_layout(estadisticas)
-            label_stats = QgsLayoutItemLabel(layout)
-            label_stats.setText(texto_stats)
-            label_stats.attemptResize(QgsLayoutSize(90, 120, QgsUnitTypes.LayoutMillimeters))
-            label_stats.attemptMove(QgsLayoutPoint(205, 50, QgsUnitTypes.LayoutMillimeters))
-            layout.addLayoutItem(label_stats)
-            
-            # Agregar al proyecto
-            layout_manager.addLayout(layout)
-            
-            feedback.pushInfo(f"📋 V4.0: Layout '{layout_name}' creado exitosamente")
-            
-        except Exception as e:
-            feedback.reportError(f"Error creando layout: {e}")
-    
-    def _guardar_grafico_barras_archivo(self, estadisticas, archivo_salida, feedback):
-        """Guarda gráfico de barras en archivo"""
-        try:
-            conteo = estadisticas['conteo_clasificaciones']
-            porcentajes = estadisticas['porcentajes_clasificaciones']
-            
-            # Configurar matplotlib para exportación
-            matplotlib.use('Agg')
-            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 8))
-            
-            clasificaciones = list(conteo.keys())
-            valores = list(conteo.values())
-            colores = ['#8B0000', '#FF4500', '#FF8C00', '#FFD700', '#ADFF2F', '#00FF7F', '#00BFFF', '#1E90FF']
-            
-            # Gráfico de conteos
-            bars1 = ax1.bar(range(len(clasificaciones)), valores, color=colores[:len(clasificaciones)], alpha=0.8)
-            ax1.set_xlabel('Clasificación de Elongación', fontsize=14, fontweight='bold')
-            ax1.set_ylabel('Número de Cuencas', fontsize=14, fontweight='bold')
-            ax1.set_title('Distribución por Clasificación\n(Conteo Absoluto)', fontsize=14, fontweight='bold')
-            ax1.set_xticks(range(len(clasificaciones)))
-            ax1.set_xticklabels(clasificaciones, rotation=45, ha='right', fontsize=10)
-            ax1.grid(True, alpha=0.3)
-            
-            for bar, valor in zip(bars1, valores):
-                height = bar.get_height()
-                ax1.text(bar.get_x() + bar.get_width()/2., height + 0.05,
-                        f'{valor}', ha='center', va='bottom', fontweight='bold', fontsize=12)
-            
-            # Gráfico de porcentajes
-            porcentajes_vals = [porcentajes[clasif] for clasif in clasificaciones]
-            bars2 = ax2.bar(range(len(clasificaciones)), porcentajes_vals, color=colores[:len(clasificaciones)], alpha=0.8)
-            ax2.set_xlabel('Clasificación de Elongación', fontsize=14, fontweight='bold')
-            ax2.set_ylabel('Porcentaje (%)', fontsize=14, fontweight='bold')
-            ax2.set_title('Distribución por Clasificación\n(Porcentajes)', fontsize=14, fontweight='bold')
-            ax2.set_xticks(range(len(clasificaciones)))
-            ax2.set_xticklabels(clasificaciones, rotation=45, ha='right', fontsize=10)
-            ax2.grid(True, alpha=0.3)
-            ax2.set_ylim(0, max(porcentajes_vals) * 1.2)
-            
-            for bar, porcentaje in zip(bars2, porcentajes_vals):
-                height = bar.get_height()
-                ax2.text(bar.get_x() + bar.get_width()/2., height + 0.5,
-                        f'{porcentaje:.1f}%', ha='center', va='bottom', fontweight='bold', fontsize=12)
-            
-            # Título general
-            fig.suptitle('Análisis de Elongación de Cuencas V4.0\nUniversidad Técnica Particular de Loja - UTPL', 
-                        fontsize=18, fontweight='bold', y=0.95)
-            
-            # Determinar ruta de archivo
-            if archivo_salida and archivo_salida != 'TEMPORARY_OUTPUT':
-                ruta_grafico = archivo_salida
-            else:
-                from pathlib import Path
-                documentos = Path.home() / "Documents" / "Indices_Morfologicos" / "Graficos"
-                documentos.mkdir(parents=True, exist_ok=True)
-                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                ruta_grafico = str(documentos / f"elongacion_barras_v4_{timestamp}.png")
-            
-            plt.tight_layout()
-            plt.savefig(ruta_grafico, dpi=300, bbox_inches='tight', 
-                       facecolor='white', edgecolor='none')
-            plt.close()
-            
-            feedback.pushInfo(f"📊 V4.0: Gráfico guardado en: {ruta_grafico}")
-            return ruta_grafico
-            
-        except Exception as e:
-            feedback.reportError(f"Error guardando gráfico: {e}")
-            return None
-    
-    def _generar_reporte_html_elongacion(self, resultados, estadisticas, archivo_salida, feedback):
-        """Genera reporte HTML completo interactivo"""
-        try:
-            # Preparar datos para tablas y gráficos
+            # Preparar datos
             tabla_cuencas = self._crear_tabla_html_cuencas(resultados)
             grafico_datos = self._preparar_datos_grafico_html(estadisticas)
             
@@ -969,12 +670,10 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
             <head>
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <title>Reporte Elongación V4.0 - UTPL</title>
+                <title>Reporte Elongación V2.0 - UTPL</title>
                 <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
                 <style>
-                    * {{
-                        box-sizing: border-box;
-                    }}
+                    * {{ box-sizing: border-box; }}
                     body {{
                         font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
                         line-height: 1.6;
@@ -1336,26 +1035,17 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
             </html>
             """
             
-            # Determinar ubicación de salida - MULTIPLATAFORMA
-            if archivo_salida and archivo_salida != 'TEMPORARY_OUTPUT':
-                if not archivo_salida.lower().endswith('.html'):
-                    archivo_salida += '.html'
-                ruta_html = archivo_salida
-            else:
-                from pathlib import Path
-                # Usar directorio home multiplataforma
-                home_dir = Path.home()
-                documentos = home_dir / "Documents" / "Indices_Morfologicos" / "Reportes"
-                documentos.mkdir(parents=True, exist_ok=True)
-                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                ruta_html = str(documentos / f"reporte_elongacion_v2_interactivo_{timestamp}.html")
+            # Guardar en directorio temporal
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            temp_dir = tempfile.gettempdir()
+            ruta_html = os.path.join(temp_dir, f"reporte_elongacion_v2_interactivo_{timestamp}.html")
             
             with open(ruta_html, 'w', encoding='utf-8') as f:
                 f.write(html_content)
             
             # Abrir en navegador
             webbrowser.open(f"file://{ruta_html}")
-            feedback.pushInfo(f"📄 V2.0: Reporte HTML interactivo: {ruta_html}")
+            feedback.pushInfo(f"📄 V2.0: Reporte HTML generado: {ruta_html}")
                 
         except Exception as e:
             feedback.reportError(f"Error generando reporte HTML: {e}")
@@ -1382,11 +1072,11 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
         return tabla_html
     
     def _preparar_datos_grafico_html(self, estadisticas):
-        """Prepara datos JavaScript para gráfico Plotly profesional"""
+        """Prepara datos JavaScript para gráfico Plotly"""
         conteo = estadisticas['conteo_clasificaciones']
         porcentajes = estadisticas['porcentajes_clasificaciones']
         
-        # Ordenar las clasificaciones según el índice de elongación (de menos a más elongada)
+        # Ordenar clasificaciones
         orden_clasificaciones = [
             "Rodeando el desagüe",
             "Muy ensanchada", 
@@ -1398,26 +1088,25 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
             "Muy alargada"
         ]
         
-        # Filtrar solo las que existen en los datos
         clasificaciones_existentes = [c for c in orden_clasificaciones if c in conteo]
         valores = [conteo[c] for c in clasificaciones_existentes]
         porcentajes_vals = [porcentajes[c] for c in clasificaciones_existentes]
         
-        # Colores profesionales según el espectro científico estándar
+        # Colores
         colores_profesionales = {
-            "Muy alargada": "#8B0000",           # Rojo oscuro
-            "Alargada": "#DC143C",               # Crimson
-            "Ligeramente alargada": "#FF6347",    # Tomate
-            "Ni alargada ni ensanchada": "#FFD700", # Dorado
-            "Ligeramente ensanchada": "#9ACD32",  # Verde amarillo
-            "Ensanchada": "#32CD32",             # Verde lima
-            "Muy ensanchada": "#1E90FF",         # Azul Dodger
-            "Rodeando el desagüe": "#4169E1"     # Azul real
+            "Muy alargada": "#8B0000",
+            "Alargada": "#DC143C",
+            "Ligeramente alargada": "#FF6347",
+            "Ni alargada ni ensanchada": "#FFD700",
+            "Ligeramente ensanchada": "#9ACD32",
+            "Ensanchada": "#32CD32",
+            "Muy ensanchada": "#1E90FF",
+            "Rodeando el desagüe": "#4169E1"
         }
         
         colores = [colores_profesionales.get(c, "#808080") for c in clasificaciones_existentes]
         
-        # Abreviaciones para mejor presentación en gráfico
+        # Abreviaciones
         clasificaciones_abrev = []
         for c in clasificaciones_existentes:
             if c == "Ni alargada ni ensanchada":
@@ -1428,22 +1117,16 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
                 clasificaciones_abrev.append("Lig. ensanchada")
             elif c == "Rodeando el desagüe":
                 clasificaciones_abrev.append("Circular")
-            elif c == "Muy alargada":
-                clasificaciones_abrev.append("Muy alargada")
-            elif c == "Muy ensanchada":
-                clasificaciones_abrev.append("Muy ensanchada")
             else:
                 clasificaciones_abrev.append(c)
         
         script_js = f"""
-        // Datos del análisis morfométrico
-        var clasificaciones_completas = {clasificaciones_existentes};
         var clasificaciones_display = {clasificaciones_abrev};
         var valores = {valores};
         var porcentajes = {porcentajes_vals};
         var colores = {colores};
         
-        // Configuración del gráfico principal
+        // Gráfico de barras
         var trace_barras = {{
             x: clasificaciones_display,
             y: valores,
@@ -1451,203 +1134,59 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
             marker: {{
                 color: colores,
                 opacity: 0.85,
-                line: {{
-                    color: '#2F2F2F',
-                    width: 1.2
-                }}
+                line: {{ color: '#2F2F2F', width: 1.2 }}
             }},
             text: valores.map((v, i) => `${{v}} cuencas<br>(${{porcentajes[i].toFixed(1)}}%)`),
             textposition: 'outside',
-            textfont: {{
-                family: 'Arial, sans-serif',
-                size: 11,
-                color: '#2F2F2F'
-            }},
-            hovertemplate: 
-                '<b>%{{data.name}}: %{{x}}</b><br>' +
-                'Número de cuencas: %{{y}}<br>' +
-                'Porcentaje: %{{customdata:.1f}}%<br>' +
-                '<extra></extra>',
-            customdata: porcentajes,
+            textfont: {{ family: 'Arial, sans-serif', size: 11, color: '#2F2F2F' }},
             name: 'Distribución Morfométrica'
         }};
         
-        // Layout profesional estilo paper científico
         var layout_principal = {{
             title: {{
                 text: 'Distribución Morfométrica de Cuencas Hidrográficas<br><sub>Índice de Elongación según Schumm (1956)</sub>',
-                font: {{ 
-                    family: 'Times New Roman, serif',
-                    size: 16, 
-                    color: '#1f2937',
-                    weight: 'bold'
-                }},
-                x: 0.5,
-                y: 0.95
+                font: {{ family: 'Times New Roman, serif', size: 16, color: '#1f2937', weight: 'bold' }},
+                x: 0.5, y: 0.95
             }},
             xaxis: {{
-                title: {{
-                    text: 'Clasificación Morfométrica',
-                    font: {{ family: 'Arial, sans-serif', size: 13, color: '#374151' }}
-                }},
+                title: {{ text: 'Clasificación Morfométrica', font: {{ family: 'Arial, sans-serif', size: 13 }} }},
                 tickangle: -35,
-                tickfont: {{ family: 'Arial, sans-serif', size: 10, color: '#4B5563' }},
-                showgrid: false,
-                showline: true,
-                linecolor: '#D1D5DB',
-                linewidth: 1,
-                mirror: true
+                showgrid: false, showline: true, linecolor: '#D1D5DB'
             }},
             yaxis: {{
-                title: {{
-                    text: 'Número de Cuencas',
-                    font: {{ family: 'Arial, sans-serif', size: 13, color: '#374151' }}
-                }},
-                tickfont: {{ family: 'Arial, sans-serif', size: 10, color: '#4B5563' }},
-                showgrid: true,
-                gridcolor: '#F3F4F6',
-                gridwidth: 1,
-                showline: true,
-                linecolor: '#D1D5DB',
-                linewidth: 1,
-                mirror: true,
-                zeroline: false
+                title: {{ text: 'Número de Cuencas', font: {{ family: 'Arial, sans-serif', size: 13 }} }},
+                showgrid: true, gridcolor: '#F3F4F6'
             }},
             plot_bgcolor: 'white',
             paper_bgcolor: 'white',
             showlegend: false,
-            margin: {{
-                l: 80,
-                r: 40,
-                t: 100,
-                b: 120
-            }},
-            font: {{
-                family: 'Arial, sans-serif'
-            }},
-            annotations: [
-                {{
-                    text: 'Re = Diámetro equivalente / Distancia máxima',
-                    showarrow: false,
-                    x: 0.5,
-                    y: -0.25,
-                    xref: 'paper',
-                    yref: 'paper',
-                    font: {{
-                        family: 'Arial, sans-serif',
-                        size: 10,
-                        color: '#6B7280',
-                        style: 'italic'
-                    }}
-                }},
-                {{
-                    text: 'n = {estadisticas.get("total_cuencas", 0)} cuencas analizadas',
-                    showarrow: false,
-                    x: 0.02,
-                    y: 0.98,
-                    xref: 'paper',
-                    yref: 'paper',
-                    font: {{
-                        family: 'Arial, sans-serif',
-                        size: 10,
-                        color: '#6B7280'
-                    }}
-                }}
-            ]
+            margin: {{ l: 80, r: 40, t: 100, b: 120 }}
         }};
         
-        // Configuración de herramientas profesional
-        var config_principal = {{
-            displayModeBar: true,
-            displaylogo: false,
-            modeBarButtonsToRemove: [
-                'zoom2d', 'pan2d', 'select2d', 'lasso2d', 'zoomIn2d', 'zoomOut2d',
-                'autoScale2d', 'resetScale2d', 'hoverClosestCartesian', 'hoverCompareCartesian'
-            ],
-            toImageButtonOptions: {{
-                format: 'png',
-                filename: 'distribucion_morfometrica_cuencas',
-                height: 600,
-                width: 900,
-                scale: 3
-            }},
-            locale: 'es'
-        }};
+        Plotly.newPlot('grafico-barras', [trace_barras], layout_principal);
         
-        // Crear gráfico principal
-        Plotly.newPlot('grafico-barras', [trace_barras], layout_principal, config_principal);
-        
-        // Gráfico circular complementario (pie chart)
+        // Gráfico circular
         var trace_circular = {{
             labels: clasificaciones_display,
             values: porcentajes,
             type: 'pie',
-            marker: {{
-                colors: colores,
-                line: {{
-                    color: '#FFFFFF',
-                    width: 2
-                }}
-            }},
+            marker: {{ colors: colores, line: {{ color: '#FFFFFF', width: 2 }} }},
             textinfo: 'label+percent',
             textposition: 'outside',
-            textfont: {{
-                family: 'Arial, sans-serif',
-                size: 11
-            }},
-            hovertemplate: 
-                '<b>%{{label}}</b><br>' +
-                'Porcentaje: %{{percent}}<br>' +
-                'Cuencas: %{{value:.1f}}%<br>' +
-                '<extra></extra>',
             hole: 0.3
         }};
         
         var layout_circular = {{
-            title: {{
-                text: 'Distribución Porcentual<br><sub>Análisis Morfométrico Regional</sub>',
-                font: {{ 
-                    family: 'Times New Roman, serif',
-                    size: 14, 
-                    color: '#1f2937'
-                }},
-                x: 0.5,
-                y: 0.95
-            }},
+            title: {{ text: 'Distribución Porcentual<br><sub>Análisis Morfométrico Regional</sub>' }},
             showlegend: true,
-            legend: {{
-                orientation: 'v',
-                x: 1.02,
-                y: 0.5,
-                font: {{
-                    family: 'Arial, sans-serif',
-                    size: 10
-                }}
-            }},
-            margin: {{
-                l: 20,
-                r: 120,
-                t: 80,
-                b: 20
-            }},
-            paper_bgcolor: 'white',
-            annotations: [
-                {{
-                    text: 'Total:<br>{estadisticas.get("total_cuencas", 0)}<br>cuencas',
-                    showarrow: false,
-                    x: 0.5,
-                    y: 0.5,
-                    font: {{
-                        family: 'Arial, sans-serif',
-                        size: 12,
-                        color: '#374151'
-                    }}
-                }}
-            ]
+            legend: {{ orientation: 'v', x: 1.02, y: 0.5 }},
+            annotations: [{{
+                text: 'Total:<br>{estadisticas.get("total_cuencas", 0)}<br>cuencas',
+                showarrow: false, x: 0.5, y: 0.5
+            }}]
         }};
         
-        // Crear gráfico circular
-        Plotly.newPlot('grafico-circular', [trace_circular], layout_circular, config_principal);
+        Plotly.newPlot('grafico-circular', [trace_circular], layout_circular);
         """
         
         return script_js
@@ -1661,7 +1200,6 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
             
             interpretacion = "<h3>Análisis Geomorfológico Automático:</h3><ul>"
             
-            # Interpretación del índice promedio
             if indice_promedio < 0.30:
                 interpretacion += "<li><strong>Cuencas Predominantemente Alargadas:</strong> El índice promedio indica que las cuencas tienden a ser alargadas, característica de sistemas fluviales con control estructural fuerte o topografía montañosa pronunciada.</li>"
             elif indice_promedio < 0.45:
@@ -1671,126 +1209,29 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
             else:
                 interpretacion += "<li><strong>Cuencas Muy Ensanchadas:</strong> El índice promedio sugiere cuencas muy ensanchadas, típicas de zonas con topografía muy suave o control estructural particular.</li>"
             
-            # Análisis de la clasificación predominante
             porcentaje_pred = porcentajes.get(clasificacion_pred, 0)
             interpretacion += f"<li><strong>Clasificación Predominante:</strong> {clasificacion_pred} ({porcentaje_pred:.1f}% de las cuencas), lo que sugiere un patrón geomorfológico dominante en la región de estudio.</li>"
             
-            # Análisis de variabilidad
-            desviacion = estadisticas.get('indice_desviacion', 0)
-            if desviacion > 0.2:
-                interpretacion += "<li><strong>Alta Variabilidad:</strong> La desviación estándar elevada indica gran diversidad en las formas de cuencas, sugiriendo heterogeneidad geológica o topográfica en la región.</li>"
-            else:
-                interpretacion += "<li><strong>Variabilidad Moderada:</strong> La desviación estándar moderada sugiere cierta homogeneidad en los procesos geomorfológicos de la región.</li>"
-            
-            # Análisis de distribución
-            num_clasificaciones = len([p for p in porcentajes.values() if p > 5])
-            if num_clasificaciones > 4:
-                interpretacion += "<li><strong>Diversidad Geomorfológica:</strong> La presencia de múltiples clasificaciones indica complejidad en los procesos formativos y posible influencia de diferentes controles geológicos.</li>"
-            
             interpretacion += "</ul>"
             
-            # Recomendaciones
             interpretacion += "<h3>Recomendaciones:</h3><ul>"
             interpretacion += "<li>Correlacionar los patrones de elongación con mapas geológicos para identificar controles litológicos.</li>"
             interpretacion += "<li>Analizar la relación entre elongación y características hidrográficas (orden de corrientes, densidad de drenaje).</li>"
             interpretacion += "<li>Considerar análisis complementarios de otros índices morfométricos para validación.</li>"
-            interpretacion += "<li>Evaluar la influencia de la actividad tectónica en las formas de cuencas más alargadas.</li>"
             interpretacion += "</ul>"
             
             return interpretacion
         except Exception:
-            return "<p>No se pudo generar interpretación automática. Consulte las estadísticas numéricas para análisis manual.</p>"
-    
-    def _crear_texto_estadisticas_layout(self, estadisticas):
-        """Crea texto formateado para layout QGIS"""
-        if "error" in estadisticas:
-            return "Error en estadísticas V2.0"
-        
-        texto = f"""ESTADÍSTICAS ELONGACIÓN V2.0
-
-Total cuencas: {estadisticas.get('total_cuencas', 0)}
-Área total: {estadisticas.get('area_total', 0):.2f}
-
-ÍNDICES:
-Promedio: {estadisticas.get('indice_promedio', 0):.4f}
-Máximo: {estadisticas.get('indice_maximo', 0):.4f}
-Mínimo: {estadisticas.get('indice_minimo', 0):.4f}
-
-PREDOMINANTE:
-{estadisticas.get('clasificacion_predominante', 'N/A')}
-
-{estadisticas.get('fecha_analisis', 'N/A')}"""
-        
-        return texto
-    
-    def _generar_reporte_elongacion(self, resultados, estadisticas, archivo_salida, feedback):
-        """Genera reporte estadístico detallado en archivo de texto"""
-        try:
-            if archivo_salida and archivo_salida != 'TEMPORARY_OUTPUT':
-                archivo_reporte = archivo_salida.replace('.png', '_reporte_v2.txt').replace('.pdf', '_reporte_v2.txt')
-            else:
-                from pathlib import Path
-                # Usar directorio home multiplataforma
-                home_dir = Path.home()
-                documentos = home_dir / "Documents" / "Indices_Morfologicos" / "Reportes"
-                documentos.mkdir(parents=True, exist_ok=True)
-                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                archivo_reporte = str(documentos / f"reporte_elongacion_v2_{timestamp}.txt")
-            
-            with open(archivo_reporte, 'w', encoding='utf-8') as f:
-                f.write("="*80 + "\n")
-                f.write("REPORTE ANÁLISIS ELONGACIÓN DE CUENCAS V2.0\n")
-                f.write("Universidad Técnica Particular de Loja - UTPL\n")
-                f.write("="*80 + "\n\n")
-                f.write(f"Fecha: {estadisticas.get('fecha_analisis', 'N/A')}\n\n")
-                
-                f.write("RESUMEN EJECUTIVO:\n")
-                f.write("-"*40 + "\n")
-                f.write(f"Total de cuencas analizadas: {estadisticas.get('total_cuencas', 0)}\n")
-                f.write(f"Área total analizada: {estadisticas.get('area_total', 0):.2f}\n")
-                f.write(f"Clasificación predominante: {estadisticas.get('clasificacion_predominante', 'N/A')}\n\n")
-                
-                f.write("ESTADÍSTICAS DE ÍNDICES DE ELONGACIÓN:\n")
-                f.write("-"*40 + "\n")
-                f.write(f"Promedio: {estadisticas.get('indice_promedio', 0):.6f}\n")
-                f.write(f"Máximo: {estadisticas.get('indice_maximo', 0):.6f}\n")
-                f.write(f"Mínimo: {estadisticas.get('indice_minimo', 0):.6f}\n")
-                f.write(f"Mediana: {estadisticas.get('indice_mediana', 0):.6f}\n")
-                f.write(f"Desviación estándar: {estadisticas.get('indice_desviacion', 0):.6f}\n\n")
-                
-                f.write("DISTRIBUCIÓN POR CLASIFICACIONES:\n")
-                f.write("-"*40 + "\n")
-                conteo = estadisticas.get('conteo_clasificaciones', {})
-                porcentajes = estadisticas.get('porcentajes_clasificaciones', {})
-                for clasif, count in conteo.items():
-                    porcentaje = porcentajes.get(clasif, 0)
-                    f.write(f"{clasif}: {count} cuencas ({porcentaje:.1f}%)\n")
-                
-                f.write("\n" + "DETALLE POR CUENCAS:\n")
-                f.write("-"*40 + "\n")
-                f.write("ID\tÁrea\t\tDist_Max\tÍndice\t\tClasificación\n")
-                f.write("-"*80 + "\n")
-                
-                for i, resultado in enumerate(resultados, 1):
-                    f.write(f"{i}\t{resultado['area']:.2f}\t\t{resultado['distancia_max']:.2f}\t\t"
-                           f"{resultado['indice_elongacion']:.4f}\t\t{resultado['clasificacion']}\n")
-                
-                f.write("\n" + "="*80 + "\n")
-                f.write("Fin del reporte V2.0\n")
-            
-            feedback.pushInfo(f"📄 V2.0: Reporte detallado: {archivo_reporte}")
-            
-        except Exception as e:
-            feedback.reportError(f"Error generando reporte: {e}")
+            return "<p>No se pudo generar interpretación automática.</p>"
     
     def _mostrar_estadisticas_log(self, estadisticas, feedback):
-        """Muestra estadísticas completas en el log"""
+        """Muestra estadísticas en el log"""
         if "error" in estadisticas:
             feedback.reportError("V2.0: No se pudieron calcular estadísticas válidas")
             return
         
         feedback.pushInfo("=" * 60)
-        feedback.pushInfo("📊 ESTADÍSTICAS ELONGACIÓN")
+        feedback.pushInfo("📊 ESTADÍSTICAS ELONGACIÓN V2.0")
         feedback.pushInfo("=" * 60)
         feedback.pushInfo(f"Total de cuencas: {estadisticas['total_cuencas']}")
         feedback.pushInfo(f"Área total analizada: {estadisticas['area_total']:.2f}")
@@ -1801,7 +1242,6 @@ PREDOMINANTE:
         feedback.pushInfo(f"  Máximo: {estadisticas['indice_maximo']:.4f}")
         feedback.pushInfo(f"  Mínimo: {estadisticas['indice_minimo']:.4f}")
         feedback.pushInfo(f"  Mediana: {estadisticas['indice_mediana']:.4f}")
-        feedback.pushInfo(f"  Desviación: {estadisticas['indice_desviacion']:.4f}")
         feedback.pushInfo("")
         feedback.pushInfo("DISTRIBUCIÓN POR CLASIFICACIONES:")
         conteo = estadisticas['conteo_clasificaciones']
@@ -1809,23 +1249,13 @@ PREDOMINANTE:
         for clasif, count in conteo.items():
             porcentaje = porcentajes[clasif]
             feedback.pushInfo(f"  {clasif}: {count} ({porcentaje:.1f}%)")
-        feedback.pushInfo("")
-        feedback.pushInfo("ESTADÍSTICAS DE ÁREAS:")
-        feedback.pushInfo(f"  Área promedio: {estadisticas['area_promedio']:.2f}")
-        feedback.pushInfo(f"  Área máxima: {estadisticas['area_maxima']:.2f}")
-        feedback.pushInfo(f"  Área mínima: {estadisticas['area_minima']:.2f}")
-        feedback.pushInfo("")
-        feedback.pushInfo("ESTADÍSTICAS DE DISTANCIAS:")
-        feedback.pushInfo(f"  Distancia promedio: {estadisticas['distancia_promedio']:.2f} m")
-        feedback.pushInfo(f"  Distancia máxima: {estadisticas['distancia_maxima']:.2f} m")
-        feedback.pushInfo(f"  Distancia mínima: {estadisticas['distancia_minima']:.2f} m")
         feedback.pushInfo("=" * 60)
     
     def name(self):
         return 'elongacion_v2'
         
     def displayName(self):
-        return self.tr('Calcular Elongación V2.0 🚀')
+        return self.tr('Calcular Elongación V2.0')
         
     def group(self):
         return self.tr('Índices Morfológicos')
@@ -1852,28 +1282,25 @@ PREDOMINANTE:
         
         <h4>Resultados:</h4>
         <ul>
-        <li><strong>Shapefile de cuencas:</strong> Polígonos con análisis de elongación</li>
-        <li><strong>Simbología automática:</strong> Colores por tipo de elongación</li>
-        <li><strong>Reporte HTML:</strong> Análisis estadístico con gráficos interactivos</li>
-        <li><strong>Reporte de texto:</strong> Datos tabulares detallados</li>
+        <li><strong>Shapefile de cuencas:</strong> Polígonos con análisis de elongación y simbología automática</li>
+        <li><strong>Reporte HTML:</strong> Análisis estadístico interactivo con gráficos (opcional)</li>
         </ul>
         
         <h4>Campos de salida principales:</h4>
         <ul>
         <li><strong>VALOR_ELON:</strong> Índice de elongación calculado</li>
-        <li><strong>CLASIF_ELON:</strong> Clasificación morfológica (Muy alargada, Alargada, Intermedia, etc.)</li>
+        <li><strong>CLASIF_ELON:</strong> Clasificación morfológica</li>
         <li><strong>DIST_MAX:</strong> Distancia máxima entre puntos extremos</li>
         <li><strong>MINPOINT/MAXPOINT:</strong> Coordenadas de puntos de elevación extrema</li>
         </ul>
         
         <h4>Clasificación:</h4>
         <p>El algoritmo clasifica las cuencas en 8 categorías desde "Muy alargada" (Re < 0.22) 
-        hasta "Circular" (Re > 1.20) según los rangos establecidos por Schumm (1956). 
-        La clasificación completa está disponible en el reporte HTML generado.</p>
+        hasta "Circular" (Re > 1.20) según los rangos establecidos por Schumm (1956).</p>
         
         <h4>Archivos de salida:</h4>
-        <p>Se guardan automáticamente en:<br>
-        <em>Documentos/Indices_Morfologicos/Resultados_Elongacion/</em></p>
+        <p>El shapefile se guarda en la ubicación especificada o en directorio temporal si no se especifica.<br>
+        El reporte HTML siempre se genera en directorio temporal y se abre automáticamente.</p>
         
         <p><strong>Nota:</strong> El algoritmo identifica automáticamente los puntos de máxima y mínima 
         elevación dentro de cada cuenca para calcular la distancia máxima.</p>
