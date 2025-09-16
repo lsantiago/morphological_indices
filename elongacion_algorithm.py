@@ -1024,7 +1024,7 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
                     <div class="footer">
                         <p><strong>Reporte generado automáticamente por el Plugin de Índices Morfológicos V2.0</strong></p>
                         <p>Universidad Técnica Particular de Loja - Departamento de Ingeniería Civil</p>
-                        <p>Basado en el trabajo de: Ing. Santiago Quiñones, Ing. María Fernanda Guarderas, Nelson Aranda</p>
+                        <p>Desarrollado por: Santiago Quiñones - Docente Investigador</p>
                     </div>
                 </div>
                 
@@ -1126,17 +1126,18 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
         var porcentajes = {porcentajes_vals};
         var colores = {colores};
         
-        // Gráfico de barras
+        // Gráfico de barras horizontales
         var trace_barras = {{
-            x: clasificaciones_display,
-            y: valores,
+            x: valores,
+            y: clasificaciones_display,
             type: 'bar',
+            orientation: 'h',
             marker: {{
                 color: colores,
                 opacity: 0.85,
                 line: {{ color: '#2F2F2F', width: 1.2 }}
             }},
-            text: valores.map((v, i) => `${{v}} cuencas<br>(${{porcentajes[i].toFixed(1)}}%)`),
+            text: valores.map((v, i) => `${{v}} cuencas (${{porcentajes[i].toFixed(1)}}%)`),
             textposition: 'outside',
             textfont: {{ family: 'Arial, sans-serif', size: 11, color: '#2F2F2F' }},
             name: 'Distribución Morfométrica'
@@ -1149,18 +1150,23 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
                 x: 0.5, y: 0.95
             }},
             xaxis: {{
-                title: {{ text: 'Clasificación Morfométrica', font: {{ family: 'Arial, sans-serif', size: 13 }} }},
-                tickangle: -35,
-                showgrid: false, showline: true, linecolor: '#D1D5DB'
+                title: {{ text: 'Número de Cuencas', font: {{ family: 'Arial, sans-serif', size: 13 }} }},
+                showgrid: true, 
+                gridcolor: '#F3F4F6',
+                showline: true, 
+                linecolor: '#D1D5DB'
             }},
             yaxis: {{
-                title: {{ text: 'Número de Cuencas', font: {{ family: 'Arial, sans-serif', size: 13 }} }},
-                showgrid: true, gridcolor: '#F3F4F6'
+                title: {{ text: 'Clasificación Morfométrica', font: {{ family: 'Arial, sans-serif', size: 13 }} }},
+                showgrid: false, 
+                showline: true, 
+                linecolor: '#D1D5DB',
+                automargin: true
             }},
             plot_bgcolor: 'white',
             paper_bgcolor: 'white',
             showlegend: false,
-            margin: {{ l: 80, r: 40, t: 100, b: 120 }}
+            margin: {{ l: 150, r: 80, t: 100, b: 80 }}
         }};
         
         Plotly.newPlot('grafico-barras', [trace_barras], layout_principal);
@@ -1267,45 +1273,58 @@ class ElongacionAlgorithm(QgsProcessingAlgorithm):
         return self.tr('''
         <h3>Cálculo de Elongación de Cuencas V2.0</h3>
         
-        <p>Calcula el índice de elongación de cuencas hidrográficas analizando la relación 
-        entre el área de la cuenca y la distancia máxima entre puntos extremos de elevación.</p>
+        <p>Calcula el índice de elongación de cuencas hidrográficas mediante el análisis de la relación entre la forma de la cuenca y la distancia máxima entre puntos de elevación extrema dentro de cada cuenca.</p>
         
-        <h4>Método:</h4>
-        <p><strong>Re = Diámetro equivalente / Distancia máxima</strong><br>
-        Donde: Diámetro equivalente = 2√(Área/π)</p>
+        <h4>Método y fórmula:</h4>
+        <p><strong>Re = Diámetro equivalente / Distancia máxima</strong></p>
+        <p>Donde:<br>
+        • <strong>Re</strong> = Índice de elongación (ratio de elongación)<br>
+        • <strong>Diámetro equivalente</strong> = 2√(Área/π) - diámetro de un círculo con la misma área que la cuenca<br>
+        • <strong>Distancia máxima</strong> = distancia 3D entre los puntos de mayor y menor elevación de la cuenca</p>
         
-        <h4>Datos de entrada:</h4>
+        <h4>Datos de entrada requeridos:</h4>
         <ul>
-        <li><strong>Polígonos de cuencas:</strong> Capa vectorial con campo de área (Shape_Area)</li>
-        <li><strong>Puntos con elevación:</strong> Capa vectorial con coordenadas X, Y, Z</li>
+        <li><strong>Polígonos de cuencas:</strong> Capa vectorial de polígonos con campo de área (Shape_Area, AREA, etc.)</li>
+        <li><strong>Puntos con elevación:</strong> Capa vectorial de puntos con coordenadas X, Y y elevación Z</li>
         </ul>
         
-        <h4>Resultados:</h4>
+        <h4>Resultados generados:</h4>
         <ul>
-        <li><strong>Shapefile de cuencas:</strong> Polígonos con análisis de elongación y simbología automática</li>
-        <li><strong>Reporte HTML:</strong> Análisis estadístico interactivo con gráficos (opcional)</li>
+        <li><strong>Shapefile de cuencas:</strong> Polígonos originales enriquecidos con análisis de elongación y simbología automática por clasificación</li>
+        <li><strong>Reporte HTML interactivo:</strong> Análisis estadístico completo con gráficos de barras y circular (opcional)</li>
         </ul>
         
-        <h4>Campos de salida principales:</h4>
+        <h4>Campos agregados al shapefile:</h4>
         <ul>
-        <li><strong>VALOR_ELON:</strong> Índice de elongación calculado</li>
-        <li><strong>CLASIF_ELON:</strong> Clasificación morfológica</li>
-        <li><strong>DIST_MAX:</strong> Distancia máxima entre puntos extremos</li>
-        <li><strong>MINPOINT/MAXPOINT:</strong> Coordenadas de puntos de elevación extrema</li>
+        <li><strong>VALOR_ELON:</strong> Índice de elongación calculado (valor Re)</li>
+        <li><strong>CLASIF_ELON:</strong> Clasificación morfológica textual de la cuenca</li>
+        <li><strong>DIST_MAX:</strong> Distancia máxima 3D entre puntos extremos de elevación</li>
+        <li><strong>MINPOINT_X/Y/Z:</strong> Coordenadas del punto de menor elevación</li>
+        <li><strong>MAXPOINT_X/Y/Z:</strong> Coordenadas del punto de mayor elevación</li>
+        <li><strong>DIAMETRO_EQ:</strong> Diámetro equivalente calculado</li>
+        <li><strong>NUM_PUNTOS:</strong> Cantidad de puntos analizados dentro de la cuenca</li>
         </ul>
         
-        <h4>Clasificación:</h4>
-        <p>El algoritmo clasifica las cuencas en 8 categorías desde "Muy alargada" (Re < 0.22) 
-        hasta "Circular" (Re > 1.20) según los rangos establecidos por Schumm (1956).</p>
+        <h4>Sistema de clasificación:</h4>
+        <p>Basado en Schumm (1956), clasifica las cuencas en 8 categorías morfológicas:</p>
+        <ul>
+        <li><strong>Muy alargada:</strong> Re &lt; 0.22 (forma muy estrecha)</li>
+        <li><strong>Alargada:</strong> 0.22 ≤ Re &lt; 0.30</li>
+        <li><strong>Ligeramente alargada:</strong> 0.30 ≤ Re &lt; 0.37</li>
+        <li><strong>Intermedia:</strong> 0.37 ≤ Re &lt; 0.45 (forma equilibrada)</li>
+        <li><strong>Ligeramente ensanchada:</strong> 0.45 ≤ Re ≤ 0.60</li>
+        <li><strong>Ensanchada:</strong> 0.60 &lt; Re ≤ 0.80</li>
+        <li><strong>Muy ensanchada:</strong> 0.80 &lt; Re ≤ 1.20</li>
+        <li><strong>Circular:</strong> Re &gt; 1.20 (forma tendiendo a circular)</li>
+        </ul>
         
         <h4>Archivos de salida:</h4>
-        <p>El shapefile se guarda en la ubicación especificada o en directorio temporal si no se especifica.<br>
-        El reporte HTML siempre se genera en directorio temporal y se abre automáticamente.</p>
+        <p>El shapefile se guarda en la ubicación especificada por el usuario, o en directorio temporal si no se especifica ruta. El reporte HTML siempre se genera en directorio temporal y se abre automáticamente en el navegador web predeterminado.</p>
         
-        <p><strong>Nota:</strong> El algoritmo identifica automáticamente los puntos de máxima y mínima 
-        elevación dentro de cada cuenca para calcular la distancia máxima.</p>
+        <h4>Proceso automatizado:</h4>
+        <p>El algoritmo identifica automáticamente los campos de coordenadas en las capas de entrada, localiza los puntos de elevación máxima y mínima dentro de cada cuenca, y calcula la distancia 3D entre estos puntos extremos para determinar el índice de elongación.</p>
         
-        <p><em>Universidad Técnica Particular de Loja (UTPL)</em></p>
+        <p><em>Desarrollado por la Universidad Técnica Particular de Loja (UTPL) - Departamento de Ingeniería Civil</em></p>
         ''')
         
     def tr(self, string):
