@@ -3,40 +3,35 @@ from qgis.PyQt.QtCore import QCoreApplication, QUrl
 from qgis.PyQt.QtGui import QDesktopServices
 from qgis.core import (QgsProcessing, QgsProcessingAlgorithm,
                        QgsProcessingParameterVectorLayer,
-                       QgsProcessingParameterNumber,
                        QgsProcessingParameterBoolean,
-                       QgsProcessingParameterEnum,
-                       QgsProcessingParameterFileDestination,
+                       QgsProcessingParameterFeatureSink,
                        QgsProcessingException,
                        QgsProject, QgsVectorLayer, QgsFields, QgsField,
                        QgsFeature, QgsVectorFileWriter, QgsCoordinateReferenceSystem,
                        QgsWkbTypes, QgsFeatureRequest, QgsExpression,
-                       QgsFeatureSink, QgsProcessingContext, QgsProcessingUtils,
+                       QgsGeometry, QgsPointXY, QgsSymbol, QgsRendererCategory,
+                       QgsCategorizedSymbolRenderer, QgsSimpleMarkerSymbolLayer,
                        QgsLayoutManager, QgsLayout, QgsLayoutItemMap,
                        QgsLayoutItemLabel, QgsLayoutSize, QgsLayoutPoint,
-                       QgsLayoutItemPicture, QgsUnitTypes)
+                       QgsLayoutItemPicture, QgsUnitTypes, QgsProcessingContext)
 from qgis.PyQt.QtCore import QVariant
+from qgis.PyQt.QtGui import QColor
 import processing
 import os
 import math
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib
-matplotlib.use('Qt5Agg')  # Backend con interfaz gráfica
+matplotlib.use('Qt5Agg')
 import tempfile
 from datetime import datetime
 import webbrowser
+from collections import defaultdict
 
 class GradienteAlgorithm(QgsProcessingAlgorithm):
     INPUT_PUNTOS = 'INPUT_PUNTOS'
-    GENERAR_GRAFICO = 'GENERAR_GRAFICO'
-    TIPO_VISUALIZACION = 'TIPO_VISUALIZACION'
-    ARCHIVO_GRAFICO = 'ARCHIVO_GRAFICO'
-    GENERAR_REPORTE = 'GENERAR_REPORTE'
-    LIMITE_Y_MIN = 'LIMITE_Y_MIN'
-    LIMITE_Y_MAX = 'LIMITE_Y_MAX'
-    LIMITE_SLK_MIN = 'LIMITE_SLK_MIN'
-    LIMITE_SLK_MAX = 'LIMITE_SLK_MAX'
+    GENERAR_HTML = 'GENERAR_HTML'
+    OUTPUT_SHAPEFILE = 'OUTPUT_SHAPEFILE'
     
     def initAlgorithm(self, config=None):
         # Capa de entrada - puntos del río ordenados
@@ -49,117 +44,37 @@ class GradienteAlgorithm(QgsProcessingAlgorithm):
             )
         )
         
-        # Parámetro para generar gráfico
+        # Parámetro para generar reporte HTML
         self.addParameter(
             QgsProcessingParameterBoolean(
-                self.GENERAR_GRAFICO,
-                self.tr('Generar visualización de gradiente'),
+                self.GENERAR_HTML,
+                self.tr('Generar reporte HTML interactivo'),
                 defaultValue=True
             )
         )
         
-        # Tipo de visualización
-        opciones_visualizacion = [
-            self.tr('Ventana emergente interactiva'),
-            self.tr('Layout automático en QGIS'),
-            self.tr('Archivo de imagen'),
-            self.tr('Reporte HTML completo')
-        ]
-        
+        # Usar FeatureSink para manejo nativo de capas temporales de QGIS
         self.addParameter(
-            QgsProcessingParameterEnum(
-                self.TIPO_VISUALIZACION,
-                self.tr('Tipo de visualización'),
-                options=opciones_visualizacion,
-                defaultValue=0,
-                optional=False
+            QgsProcessingParameterFeatureSink(
+                self.OUTPUT_SHAPEFILE,
+                self.tr('Gradiente SL-K'),
+                type=QgsProcessing.TypeVectorPoint,
+                createByDefault=True
             )
         )
-        
-        # Archivo de salida para gráfico/reporte
-        self.addParameter(
-            QgsProcessingParameterFileDestination(
-                self.ARCHIVO_GRAFICO,
-                self.tr('Archivo de salida (imagen/reporte)'),
-                fileFilter='PNG files (*.png);;PDF files (*.pdf);;HTML files (*.html)',
-                optional=True,
-                defaultValue=None
-            )
-        )
-        
-        # Generar reporte estadístico
-        self.addParameter(
-            QgsProcessingParameterBoolean(
-                self.GENERAR_REPORTE,
-                self.tr('Generar reporte estadístico detallado'),
-                defaultValue=True
-            )
-        )
-        
-        # Límites para el gráfico - Eje Y (elevación)
-        self.addParameter(
-            QgsProcessingParameterNumber(
-                self.LIMITE_Y_MIN,
-                self.tr('Límite inferior eje Y (elevación)'),
-                type=QgsProcessingParameterNumber.Double,
-                defaultValue=None,
-                optional=True
-            )
-        )
-        
-        self.addParameter(
-            QgsProcessingParameterNumber(
-                self.LIMITE_Y_MAX,
-                self.tr('Límite superior eje Y (elevación)'),
-                type=QgsProcessingParameterNumber.Double,
-                defaultValue=None,
-                optional=True
-            )
-        )
-        
-        # Límites para el gráfico - Eje SLK
-        self.addParameter(
-            QgsProcessingParameterNumber(
-                self.LIMITE_SLK_MIN,
-                self.tr('Límite inferior SLK (gradiente)'),
-                type=QgsProcessingParameterNumber.Double,
-                defaultValue=-100,
-                optional=True
-            )
-        )
-        
-        self.addParameter(
-            QgsProcessingParameterNumber(
-                self.LIMITE_SLK_MAX,
-                self.tr('Límite superior SLK (gradiente)'),
-                type=QgsProcessingParameterNumber.Double,
-                defaultValue=500,
-                optional=True
-            )
-        )
-        
-        # SIN PARÁMETRO OUTPUT - SE CREA AUTOMÁTICAMENTE
     
     def processAlgorithm(self, parameters, context, feedback):
         # ===== MARCADORES DE VERSIÓN =====
         feedback.pushInfo("=" * 70)
-        feedback.pushInfo("🚀 EJECUTANDO GRADIENTE VERSIÓN 4.0 - SIN PARÁMETRO OUTPUT")
+        feedback.pushInfo("🚀 EJECUTANDO GRADIENTE V2.0 - ANÁLISIS GEOMORFOLÓGICO QGIS")
         feedback.pushInfo("=" * 70)
         
         try:
             # Obtener parámetros
             puntos_layer = self.parameterAsVectorLayer(parameters, self.INPUT_PUNTOS, context)
-            generar_grafico = self.parameterAsBool(parameters, self.GENERAR_GRAFICO, context)
-            tipo_visualizacion = self.parameterAsInt(parameters, self.TIPO_VISUALIZACION, context)
-            archivo_salida = self.parameterAsFileOutput(parameters, self.ARCHIVO_GRAFICO, context)
-            generar_reporte = self.parameterAsBool(parameters, self.GENERAR_REPORTE, context)
-            limite_y_min = self.parameterAsDouble(parameters, self.LIMITE_Y_MIN, context)
-            limite_y_max = self.parameterAsDouble(parameters, self.LIMITE_Y_MAX, context)
-            limite_slk_min = self.parameterAsDouble(parameters, self.LIMITE_SLK_MIN, context)
-            limite_slk_max = self.parameterAsDouble(parameters, self.LIMITE_SLK_MAX, context)
+            generar_html = self.parameterAsBool(parameters, self.GENERAR_HTML, context)
             
-            feedback.pushInfo("✅ V4.0: Parámetros obtenidos correctamente")
-            feedback.pushInfo(f"📋 V4.0: Parámetros recibidos: {list(parameters.keys())}")
+            feedback.pushInfo("✅ Parámetros obtenidos correctamente")
             
             # Validar capa
             if not puntos_layer.isValid():
@@ -174,16 +89,16 @@ class GradienteAlgorithm(QgsProcessingAlgorithm):
                 )
             
             campo_x, campo_y, campo_z = campos_requeridos
-            feedback.pushInfo(f"V4.0: Usando campos: X={campo_x}, Y={campo_y}, Z={campo_z}")
+            feedback.pushInfo(f"Usando campos: X={campo_x}, Y={campo_y}, Z={campo_z}")
             
             # Leer y procesar los datos
-            feedback.pushInfo("V4.0: Leyendo puntos del río...")
+            feedback.pushInfo("📊 Leyendo puntos del río...")
             puntos_data = self._leer_puntos_ordenados(puntos_layer, campo_x, campo_y, campo_z, feedback)
             
             if len(puntos_data) < 2:
                 raise QgsProcessingException(self.tr("Se necesitan al menos 2 puntos para calcular el gradiente"))
             
-            feedback.pushInfo(f"V4.0: Procesando {len(puntos_data)} puntos...")
+            feedback.pushInfo(f"📐 Procesando {len(puntos_data)} puntos...")
             
             # Calcular distancias acumuladas
             distancias = self._calcular_distancias_acumuladas(puntos_data, feedback)
@@ -195,71 +110,55 @@ class GradienteAlgorithm(QgsProcessingAlgorithm):
             puntos_medios = self._calcular_puntos_medios(distancias)
             gradientes_normalizados = self._calcular_gradientes_normalizados(gradientes_slk, feedback)
             
-            # Validar que todas las listas tengan la misma longitud
-            n_puntos = len(puntos_data)
-            if not all(len(lst) == n_puntos for lst in [distancias, gradientes_slk, puntos_medios, gradientes_normalizados]):
-                raise QgsProcessingException("Error interno: longitudes de listas inconsistentes")
+            # Crear campos de salida - PRESERVAR campos originales + agregar nuevos
+            fields = QgsFields(puntos_layer.fields())
+            fields.append(QgsField("SLK", QVariant.Double, "double", 20, 8))
+            fields.append(QgsField("DIST_ACUM", QVariant.Double, "double", 20, 2))
+            fields.append(QgsField("P_MEDIO", QVariant.Double, "double", 20, 2))
+            fields.append(QgsField("SLK_NORM", QVariant.Double, "double", 20, 8))
+            fields.append(QgsField("ORDEN_RIO", QVariant.Int, "integer", 10, 0))
+            fields.append(QgsField("PENDIENTE", QVariant.Double, "double", 20, 6))
             
-            # Crear NUEVA capa de salida - COMPLETAMENTE INDEPENDIENTE
-            feedback.pushInfo("🔧 V4.0: Creando nueva capa con resultados de gradiente...")
+            # Crear sink con nombre personalizado usando timestamp
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            layer_name = f"gradiente_slk_{timestamp}"
             
-            try:
-                output_path = self._crear_nueva_capa_independiente(
-                    puntos_layer, puntos_data, distancias,
-                    gradientes_slk, puntos_medios, gradientes_normalizados,
-                    campo_x, campo_y, campo_z, feedback
-                )
-                feedback.pushInfo(f"🎯 V4.0: Capa creada exitosamente en: {output_path}")
-            except Exception as e:
-                feedback.reportError(f"❌ V4.0: Error en creación de capa: {str(e)}")
-                # Continuar con el resto del procesamiento
-                output_path = "Error en creación"
+            (sink, dest_id) = self.parameterAsSink(
+                parameters, self.OUTPUT_SHAPEFILE, context, fields,
+                QgsWkbTypes.Point, puntos_layer.crs()
+            )
             
-            # Generar estadísticas
+            feedback.pushInfo(f"🔧 Creando capa temporal: {layer_name}")
+            
+            # Escribir features al sink
+            self._escribir_features_al_sink(
+                sink, puntos_data, distancias, gradientes_slk, 
+                puntos_medios, gradientes_normalizados, puntos_layer, fields, feedback
+            )
+            
+            # Calcular estadísticas
             estadisticas = self._calcular_estadisticas_completas(gradientes_slk, distancias, puntos_data, feedback)
             
-            # Generar visualizaciones según el tipo seleccionado
-            if generar_grafico:
-                feedback.pushInfo("🖼️ V4.0: Generando visualización de gradiente...")
-                try:
-                    self._generar_visualizacion(
-                        puntos_data, distancias, gradientes_slk, estadisticas,
-                        tipo_visualizacion, archivo_salida,
-                        limite_y_min, limite_y_max, limite_slk_min, limite_slk_max,
-                        context, feedback
-                    )
-                except Exception as e:
-                    feedback.reportError(f"Error en visualización: {str(e)}")
-            
-            # Generar reporte si se solicita
-            if generar_reporte:
-                feedback.pushInfo("📄 V4.0: Generando reporte detallado...")
-                try:
-                    self._generar_reporte_detallado(estadisticas, archivo_salida, feedback)
-                except Exception as e:
-                    feedback.reportError(f"Error en reporte: {str(e)}")
+            # Generar reporte HTML si se solicita
+            if generar_html:
+                feedback.pushInfo("📄 Generando reporte HTML interactivo...")
+                self._generar_reporte_html(puntos_data, distancias, gradientes_slk, estadisticas, feedback)
             
             # Mostrar estadísticas en log
             self._mostrar_estadisticas(estadisticas, feedback)
             
             feedback.pushInfo("=" * 70)
-            feedback.pushInfo("🎉 VERSIÓN 4.0 - PROCESAMIENTO COMPLETADO EXITOSAMENTE")
-            feedback.pushInfo(f"📊 Nueva capa creada con {n_puntos} puntos procesados")
-            if output_path != "Error en creación":
-                feedback.pushInfo(f"📁 Archivo de salida: {output_path}")
+            feedback.pushInfo("🎉 GRADIENTE V2.0 - PROCESAMIENTO COMPLETADO EXITOSAMENTE")
+            feedback.pushInfo(f"📊 Puntos procesados: {len(puntos_data)}")
+            feedback.pushInfo(f"📁 Capa creada: {layer_name}")
             feedback.pushInfo("=" * 70)
             
-            # Retornar diccionario vacío - sin referencias a OUTPUT
-            return {}
+            return {self.OUTPUT_SHAPEFILE: dest_id}
             
         except Exception as e:
-            feedback.reportError(f"❌ V4.0: Error durante el procesamiento: {str(e)}")
-            feedback.pushInfo(f"🔧 V4.0 DEBUG: Tipo de error: {type(e)}")
+            feedback.reportError(f"❌ Error durante el procesamiento: {str(e)}")
             import traceback
-            feedback.pushInfo(f"🔧 V4.0 DEBUG: Traceback: {traceback.format_exc()}")
-            
-            # NO relanzar la excepción para evitar que QGIS trate de usar parameterAsSink
-            feedback.pushInfo("⚠️ V4.0: El procesamiento se completó con errores, pero los resultados parciales están disponibles")
+            feedback.pushInfo(f"🔧 DEBUG: Traceback: {traceback.format_exc()}")
             return {}
     
     def _detectar_campos_coordenadas(self, layer):
@@ -401,74 +300,39 @@ class GradienteAlgorithm(QgsProcessingAlgorithm):
         
         return gradientes_norm
     
-    def _crear_nueva_capa_independiente(self, input_layer, puntos_data, distancias,
-                                       gradientes_slk, puntos_medios, gradientes_norm,
-                                       campo_x, campo_y, campo_z, feedback):
-        """Crea una NUEVA capa COMPLETAMENTE INDEPENDIENTE del sistema de parámetros"""
+    def _calcular_estadisticas_completas(self, gradientes_slk, distancias, puntos_data, feedback):
+        """Calcula estadísticas completas para el reporte"""
+        valores_validos = [g for g in gradientes_slk[1:] if math.isfinite(g) and abs(g) > 1e-6]
+        elevaciones = [p['z'] for p in puntos_data]
         
-        # Crear campos de salida - PRESERVAR campos originales + agregar nuevos
-        fields = QgsFields(input_layer.fields())
+        if not valores_validos:
+            return {"error": "No hay gradientes válidos"}
         
-        # Agregar campos específicos del gradiente
-        fields.append(QgsField("SLK", QVariant.Double, "double", 20, 8))
-        fields.append(QgsField("DIST_ACUM", QVariant.Double, "double", 20, 2))
-        fields.append(QgsField("P_MEDIO", QVariant.Double, "double", 20, 2))
-        fields.append(QgsField("SLK_NORM", QVariant.Double, "double", 20, 8))
+        estadisticas = {
+            "n_puntos": len(puntos_data),
+            "distancia_total": distancias[-1],
+            "elevacion_max": max(elevaciones),
+            "elevacion_min": min(elevaciones),
+            "desnivel_total": max(elevaciones) - min(elevaciones),
+            "gradiente_promedio": np.mean(valores_validos),
+            "gradiente_maximo": np.max(valores_validos),
+            "gradiente_minimo": np.min(valores_validos),
+            "gradiente_mediana": np.median(valores_validos),
+            "desviacion_estandar": np.std(valores_validos),
+            "pendiente_promedio_pct": abs(np.mean(valores_validos)) * 100,
+            "puntos_validos": len(valores_validos),
+            "puntos_problematicos": len(gradientes_slk) - len(valores_validos) - 1,
+            "fecha_analisis": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
         
-        # Campos adicionales informativos
-        fields.append(QgsField("ORDEN_RIO", QVariant.Int, "integer", 10, 0))
-        fields.append(QgsField("PENDIENTE", QVariant.Double, "double", 20, 6))
+        return estadisticas
+    
+    def _escribir_features_al_sink(self, sink, puntos_data, distancias, gradientes_slk, 
+                                   puntos_medios, gradientes_norm, input_layer, fields, feedback):
+        """Escribe las features directamente al sink de QGIS"""
         
-        # DETERMINAR UBICACIÓN DE SALIDA
-        import tempfile
-        import os
-        from pathlib import Path
+        feedback.pushInfo("✍️ V2.0: Escribiendo datos al sink temporal...")
         
-        # Crear carpeta de resultados en Documentos del usuario
-        documentos = Path.home() / "Documents" / "Indices_Morfologicos" / "Resultados_Gradiente"
-        documentos.mkdir(parents=True, exist_ok=True)
-        
-        # Nombre del archivo con timestamp
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        nombre_archivo = f"gradiente_slk_{timestamp}.shp"
-        temp_path = str(documentos / nombre_archivo)
-        
-        feedback.pushInfo(f"📁 V4.0: Creando archivo en: {temp_path}")
-        
-        # Usar QgsVectorFileWriter directamente - SIN PARÁMETROS DE QGIS
-        writer = QgsVectorFileWriter(
-            temp_path,
-            "UTF-8",
-            fields,
-            QgsWkbTypes.Point,
-            input_layer.crs(),
-            "ESRI Shapefile"
-        )
-        
-        if writer.hasError() != QgsVectorFileWriter.NoError:
-            error_msg = f"Error creando archivo: {writer.errorMessage()}"
-            feedback.reportError(error_msg)
-            # Fallback a carpeta temporal si falla Documentos
-            temp_path = os.path.join(tempfile.gettempdir(), nombre_archivo)
-            feedback.pushInfo(f"🔄 V4.0: Intentando en carpeta temporal: {temp_path}")
-            
-            writer = QgsVectorFileWriter(
-                temp_path,
-                "UTF-8",
-                fields,
-                QgsWkbTypes.Point,
-                input_layer.crs(),
-                "ESRI Shapefile"
-            )
-            
-            if writer.hasError() != QgsVectorFileWriter.NoError:
-                feedback.reportError(f"Error crítico: {writer.errorMessage()}")
-                del writer
-                return None
-        
-        feedback.pushInfo("✍️ V4.0: Escribiendo datos...")
-        
-        # Escribir todas las features
         features_exitosas = 0
         for i, punto in enumerate(puntos_data):
             try:
@@ -499,8 +363,8 @@ class GradienteAlgorithm(QgsProcessingAlgorithm):
                 # Copiar geometría
                 new_feature.setGeometry(punto['feature'].geometry())
                 
-                # Escribir feature
-                if writer.addFeature(new_feature):
+                # Escribir feature al sink
+                if sink.addFeature(new_feature):
                     features_exitosas += 1
                 else:
                     feedback.pushWarning(f"No se pudo escribir feature {i}")
@@ -509,291 +373,11 @@ class GradienteAlgorithm(QgsProcessingAlgorithm):
                 feedback.pushWarning(f"Error en feature {i}: {str(e)}")
                 continue
         
-        # Cerrar writer
-        del writer
+        feedback.pushInfo(f"✅ V2.0: Features escritas exitosamente al sink: {features_exitosas}/{len(puntos_data)}")
         
-        feedback.pushInfo(f"✅ V4.0: Features escritas exitosamente: {features_exitosas}/{len(puntos_data)}")
-        
-        # Verificar que el archivo existe
-        if not os.path.exists(temp_path):
-            feedback.reportError("❌ V4.0: El archivo no se creó correctamente")
-            return None
-        
-        # Cargar la capa al proyecto automáticamente
-        layer_name = f"Gradiente_SLK_{timestamp}"
-        nueva_capa = QgsVectorLayer(temp_path, layer_name, "ogr")
-        
-        if nueva_capa.isValid():
-            # Agregar al proyecto actual
-            QgsProject.instance().addMapLayer(nueva_capa)
-            feedback.pushInfo(f"🎯 V4.0: Capa '{layer_name}' agregada al proyecto exitosamente")
-            feedback.pushInfo(f"📂 V4.0: Ubicación permanente: {temp_path}")
-            feedback.pushInfo(f"📊 V4.0: Registros totales: {nueva_capa.featureCount()}")
-            
-            # Mostrar información de la carpeta
-            carpeta_resultados = str(documentos)
-            feedback.pushInfo(f"📁 V4.0: Carpeta de resultados: {carpeta_resultados}")
-        else:
-            feedback.pushWarning("⚠️ V4.0: La capa se creó pero no se pudo cargar automáticamente")
-        
-        return temp_path
+        return features_exitosas
     
-    def _calcular_estadisticas_completas(self, gradientes_slk, distancias, puntos_data, feedback):
-        """Calcula estadísticas completas para el reporte"""
-        valores_validos = [g for g in gradientes_slk[1:] if math.isfinite(g) and abs(g) > 1e-6]
-        elevaciones = [p['z'] for p in puntos_data]
-        
-        if not valores_validos:
-            return {"error": "No hay gradientes válidos"}
-        
-        estadisticas = {
-            "n_puntos": len(puntos_data),
-            "distancia_total": distancias[-1],
-            "elevacion_max": max(elevaciones),
-            "elevacion_min": min(elevaciones),
-            "desnivel_total": max(elevaciones) - min(elevaciones),
-            "gradiente_promedio": np.mean(valores_validos),
-            "gradiente_maximo": np.max(valores_validos),
-            "gradiente_minimo": np.min(valores_validos),
-            "gradiente_mediana": np.median(valores_validos),
-            "desviacion_estandar": np.std(valores_validos),
-            "pendiente_promedio_pct": abs(np.mean(valores_validos)) * 100,
-            "puntos_validos": len(valores_validos),
-            "puntos_problematicos": len(gradientes_slk) - len(valores_validos) - 1,
-            "fecha_analisis": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        }
-        
-        return estadisticas
-    
-    def _generar_visualizacion(self, puntos_data, distancias, gradientes_slk, estadisticas,
-                              tipo_visualizacion, archivo_salida,
-                              limite_y_min, limite_y_max, limite_slk_min, limite_slk_max,
-                              context, feedback):
-        """Genera visualización según el tipo seleccionado"""
-        
-        if tipo_visualizacion == 0:  # Ventana emergente interactiva
-            self._mostrar_grafico_interactivo(puntos_data, distancias, gradientes_slk,
-                                            limite_y_min, limite_y_max, limite_slk_min, limite_slk_max, feedback)
-        
-        elif tipo_visualizacion == 1:  # Layout automático en QGIS
-            self._crear_layout_qgis(puntos_data, distancias, gradientes_slk, estadisticas,
-                                   limite_y_min, limite_y_max, limite_slk_min, limite_slk_max,
-                                   context, feedback)
-        
-        elif tipo_visualizacion == 2:  # Archivo de imagen
-            self._guardar_grafico_archivo(puntos_data, distancias, gradientes_slk,
-                                        limite_y_min, limite_y_max, limite_slk_min, limite_slk_max,
-                                        archivo_salida, feedback)
-        
-        elif tipo_visualizacion == 3:  # Reporte HTML completo
-            self._generar_reporte_html(puntos_data, distancias, gradientes_slk, estadisticas,
-                                     archivo_salida, feedback)
-    
-    def _mostrar_grafico_interactivo(self, puntos_data, distancias, gradientes_slk,
-                                   limite_y_min, limite_y_max, limite_slk_min, limite_slk_max, feedback):
-        """Muestra gráfico en ventana emergente interactiva"""
-        try:
-            elevaciones = [p['z'] for p in puntos_data]
-            
-            # Configurar matplotlib para mostrar ventana
-            plt.ion()  # Modo interactivo
-            fig, ax1 = plt.subplots(figsize=(14, 10))
-            
-            # Primer eje - Perfil del río
-            color1 = 'tab:blue'
-            ax1.set_xlabel('Distancia (m)', fontsize=12, fontweight='bold')
-            ax1.set_ylabel('Elevación (m)', color=color1, fontsize=12, fontweight='bold')
-            line1 = ax1.plot(distancias, elevaciones, 'b-', linewidth=3, label='Perfil del río', alpha=0.8)
-            ax1.fill_between(distancias, elevaciones, alpha=0.3, color='lightblue')
-            ax1.tick_params(axis='y', labelcolor=color1)
-            ax1.grid(True, alpha=0.3)
-            
-            # Configurar límites del primer eje
-            if limite_y_min is not None and limite_y_max is not None:
-                ax1.set_ylim(limite_y_min, limite_y_max)
-            else:
-                margen_y = (max(elevaciones) - min(elevaciones)) * 0.1
-                ax1.set_ylim(min(elevaciones) - margen_y, max(elevaciones) + margen_y)
-            
-            # Segundo eje - Gradiente SL-K
-            ax2 = ax1.twinx()
-            color2 = 'tab:red'
-            ax2.set_ylabel('SL-K (Gradiente)', color=color2, fontsize=12, fontweight='bold')
-            line2 = ax2.plot(distancias, gradientes_slk, 'r-', marker='o', linewidth=2, 
-                           markersize=3, label='Gradiente SL-K', alpha=0.8)
-            ax2.tick_params(axis='y', labelcolor=color2)
-            
-            # Configurar límites del segundo eje
-            ax2.set_ylim(limite_slk_min, limite_slk_max)
-            
-            # Límites para X
-            ax1.set_xlim(-200, distancias[-1] + 300)
-            
-            # Título y leyendas
-            plt.title('Análisis de Gradiente Longitudinal del Río V4.0\nUniversidad Técnica Particular de Loja', 
-                     fontsize=16, fontweight='bold', pad=20)
-            
-            # Leyendas combinadas
-            lines1, labels1 = ax1.get_legend_handles_labels()
-            lines2, labels2 = ax2.get_legend_handles_labels()
-            ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper right', framealpha=0.9)
-            
-            # Ajustar layout
-            fig.tight_layout()
-            
-            # Mostrar ventana
-            plt.show()
-            feedback.pushInfo("🖼️ V4.0: Gráfico interactivo mostrado en ventana emergente")
-            
-        except Exception as e:
-            feedback.reportError(f"V4.0: Error mostrando gráfico interactivo: {str(e)}")
-    
-    def _crear_layout_qgis(self, puntos_data, distancias, gradientes_slk, estadisticas,
-                          limite_y_min, limite_y_max, limite_slk_min, limite_slk_max,
-                          context, feedback):
-        """Crea layout automático en QGIS con gráfico integrado"""
-        try:
-            # Crear gráfico temporal
-            temp_grafico = os.path.join(tempfile.gettempdir(), 
-                                      f"gradiente_layout_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
-            
-            ruta_grafico = self._guardar_grafico_archivo(puntos_data, distancias, gradientes_slk,
-                                        limite_y_min, limite_y_max, limite_slk_min, limite_slk_max,
-                                        temp_grafico, feedback)
-            
-            # Obtener proyecto actual
-            project = QgsProject.instance()
-            if not project:
-                feedback.pushWarning("V4.0: No se pudo acceder al proyecto actual para crear layout")
-                return
-            
-            layout_manager = project.layoutManager()
-            layout_name = f"Gradiente_V4_0_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-            layout = QgsLayout(project)
-            layout.setName(layout_name)
-            
-            # Configurar página A4 horizontal
-            page = layout.pageCollection().page(0)
-            if page:
-                page.setPageSize(QgsLayoutSize(297, 210, QgsUnitTypes.LayoutMillimeters))
-            
-            # Agregar título
-            titulo = QgsLayoutItemLabel(layout)
-            titulo.setText("Análisis de Gradiente Longitudinal V4.0")
-            titulo.attemptResize(QgsLayoutSize(250, 15, QgsUnitTypes.LayoutMillimeters))
-            titulo.attemptMove(QgsLayoutPoint(20, 20, QgsUnitTypes.LayoutMillimeters))
-            layout.addLayoutItem(titulo)
-            
-            # Agregar imagen del gráfico si existe
-            if ruta_grafico and os.path.exists(ruta_grafico):
-                imagen_grafico = QgsLayoutItemPicture(layout)
-                imagen_grafico.setPicturePath(ruta_grafico)
-                imagen_grafico.attemptResize(QgsLayoutSize(250, 150, QgsUnitTypes.LayoutMillimeters))
-                imagen_grafico.attemptMove(QgsLayoutPoint(20, 40, QgsUnitTypes.LayoutMillimeters))
-                layout.addLayoutItem(imagen_grafico)
-            
-            # Agregar estadísticas
-            texto_stats = self._crear_texto_estadisticas(estadisticas)
-            label_stats = QgsLayoutItemLabel(layout)
-            label_stats.setText(texto_stats)
-            label_stats.attemptResize(QgsLayoutSize(100, 150, QgsUnitTypes.LayoutMillimeters))
-            label_stats.attemptMove(QgsLayoutPoint(180, 50, QgsUnitTypes.LayoutMillimeters))
-            layout.addLayoutItem(label_stats)
-            
-            # Agregar layout al proyecto
-            layout_manager.addLayout(layout)
-            
-            feedback.pushInfo(f"📋 V4.0: Layout '{layout_name}' creado en el proyecto QGIS")
-            
-        except Exception as e:
-            feedback.reportError(f"V4.0: Error creando layout QGIS: {str(e)}")
-            feedback.pushWarning("V4.0: El layout no se pudo crear, pero el procesamiento continuará")
-    
-    def _guardar_grafico_archivo(self, puntos_data, distancias, gradientes_slk,
-                               limite_y_min, limite_y_max, limite_slk_min, limite_slk_max,
-                               archivo_salida, feedback):
-        """Guarda gráfico en archivo de imagen"""
-        try:
-            elevaciones = [p['z'] for p in puntos_data]
-            
-            # Configurar matplotlib para exportación
-            matplotlib.use('Agg')  # Backend sin interfaz
-            fig, ax1 = plt.subplots(figsize=(16, 10))
-            
-            # Primer eje - Perfil del río
-            color1 = 'tab:blue'
-            ax1.set_xlabel('Distancia (m)', fontsize=14, fontweight='bold')
-            ax1.set_ylabel('Elevación (m)', color=color1, fontsize=14, fontweight='bold')
-            ax1.plot(distancias, elevaciones, 'b-', linewidth=4, label='Perfil del río', alpha=0.9)
-            ax1.fill_between(distancias, elevaciones, alpha=0.3, color='lightblue')
-            ax1.tick_params(axis='y', labelcolor=color1, labelsize=12)
-            ax1.grid(True, alpha=0.4, linestyle='--')
-            
-            # Configurar límites del primer eje
-            if limite_y_min is not None and limite_y_max is not None:
-                ax1.set_ylim(limite_y_min, limite_y_max)
-            else:
-                margen_y = (max(elevaciones) - min(elevaciones)) * 0.1
-                ax1.set_ylim(min(elevaciones) - margen_y, max(elevaciones) + margen_y)
-            
-            # Segundo eje - Gradiente SL-K
-            ax2 = ax1.twinx()
-            color2 = 'tab:red'
-            ax2.set_ylabel('SL-K (Gradiente)', color=color2, fontsize=14, fontweight='bold')
-            ax2.plot(distancias, gradientes_slk, 'r-', marker='o', linewidth=3, 
-                    markersize=4, label='Gradiente SL-K', alpha=0.9)
-            ax2.tick_params(axis='y', labelcolor=color2, labelsize=12)
-            
-            # Configurar límites del segundo eje
-            ax2.set_ylim(limite_slk_min, limite_slk_max)
-            
-            # Límites para X
-            ax1.set_xlim(-200, distancias[-1] + 300)
-            
-            # Título profesional
-            plt.suptitle('Análisis de Gradiente Longitudinal del Río V4.0', 
-                        fontsize=18, fontweight='bold', y=0.95)
-            plt.title('Universidad Técnica Particular de Loja - UTPL', 
-                     fontsize=12, style='italic', y=0.88)
-            
-            # Leyendas
-            lines1, labels1 = ax1.get_legend_handles_labels()
-            lines2, labels2 = ax2.get_legend_handles_labels()
-            ax1.legend(lines1 + lines2, labels1 + labels2, 
-                      loc='upper right', framealpha=0.9, fontsize=12)
-            
-            # Ajustar layout
-            fig.tight_layout()
-            
-            # DETERMINAR UBICACIÓN DE SALIDA DEL GRÁFICO
-            if archivo_salida and archivo_salida != 'TEMPORARY_OUTPUT':
-                # Usar ubicación especificada por usuario
-                ruta_grafico = archivo_salida
-            else:
-                # Usar carpeta predeterminada
-                from pathlib import Path
-                documentos = Path.home() / "Documents" / "Indices_Morfologicos" / "Graficos"
-                documentos.mkdir(parents=True, exist_ok=True)
-                
-                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                nombre_grafico = f"gradiente_perfil_v4_{timestamp}.png"
-                ruta_grafico = str(documentos / nombre_grafico)
-            
-            # Guardar archivo
-            plt.savefig(ruta_grafico, dpi=300, bbox_inches='tight', 
-                       facecolor='white', edgecolor='none')
-            feedback.pushInfo(f"🖼️ V4.0: Gráfico guardado en: {ruta_grafico}")
-            
-            plt.close()
-            
-            return ruta_grafico
-            
-        except Exception as e:
-            feedback.reportError(f"V4.0: Error guardando gráfico: {str(e)}")
-            return None
-    
-    def _generar_reporte_html(self, puntos_data, distancias, gradientes_slk, estadisticas,
-                            archivo_salida, feedback):
+    def _generar_reporte_html(self, puntos_data, distancias, gradientes_slk, estadisticas, feedback):
         """Genera reporte HTML completo con gráfico interactivo"""
         try:
             # Extraer datos para el gráfico
@@ -829,7 +413,7 @@ class GradienteAlgorithm(QgsProcessingAlgorithm):
             <head>
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <title>Reporte Gradiente V4.0 - UTPL</title>
+                <title>Reporte Gradiente V2.0 - UTPL</title>
                 <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
                 <style>
                     body {{
@@ -929,13 +513,13 @@ class GradienteAlgorithm(QgsProcessingAlgorithm):
                 <div class="container">
                     <div class="header">
                         <h1>Análisis de Gradiente Longitudinal</h1>
-                        <div class="version-badge">Versión 4.0 Interactiva</div>
+                        <div class="version-badge">Versión 2.0 Temporal Nativa</div>
                         <p>Universidad Técnica Particular de Loja - UTPL</p>
                         <p>Fecha de análisis: {estadisticas.get('fecha_analisis', 'N/A')}</p>
                     </div>
                     
                     <div class="section">
-                        <h2>📊 Estadísticas Generales</h2>
+                        <h2>Estadísticas Generales</h2>
                         <div class="stats-grid">
                             <div class="stat-card">
                                 <p class="stat-value">{estadisticas.get('n_puntos', 0)}</p>
@@ -957,7 +541,7 @@ class GradienteAlgorithm(QgsProcessingAlgorithm):
                     </div>
                     
                     <div class="section">
-                        <h2>📈 Análisis de Gradiente (SL-K)</h2>
+                        <h2>Análisis de Gradiente (SL-K)</h2>
                         <div class="stats-grid">
                             <div class="stat-card">
                                 <p class="stat-value">{estadisticas.get('gradiente_promedio', 0):.6f}</p>
@@ -979,7 +563,7 @@ class GradienteAlgorithm(QgsProcessingAlgorithm):
                     </div>
                     
                     <div class="section">
-                        <h2>🗻 Información Altimétrica</h2>
+                        <h2>Información Altimétrica</h2>
                         <div class="stats-grid">
                             <div class="stat-card">
                                 <p class="stat-value">{estadisticas.get('elevacion_max', 0):.2f} m</p>
@@ -1001,7 +585,7 @@ class GradienteAlgorithm(QgsProcessingAlgorithm):
                     </div>
                     
                     <div class="section">
-                        <h2>📊 Gráfico Interactivo de Perfil Longitudinal y Gradiente</h2>
+                        <h2>Gráfico Interactivo de Perfil Longitudinal y Gradiente</h2>
                         <div class="grafico-container">
                             <div id="grafico-gradiente" style="width:100%;height:600px;"></div>
                             <p style="text-align: center; margin-top: 15px; color: #666;">
@@ -1011,16 +595,16 @@ class GradienteAlgorithm(QgsProcessingAlgorithm):
                     </div>
                     
                     <div class="section">
-                        <h2>💡 Interpretación de Resultados</h2>
+                        <h2>Interpretación de Resultados</h2>
                         <div class="interpretation">
                             {self._generar_interpretacion_html(estadisticas)}
                         </div>
                     </div>
                     
                     <div class="footer">
-                        <p><strong>Reporte generado automáticamente por el Plugin de Índices Morfológicos V4.0</strong></p>
+                        <p><strong>Reporte generado automáticamente por el Plugin de Índices Morfológicos V2.0</strong></p>
                         <p>Universidad Técnica Particular de Loja - Departamento de Ingeniería Civil</p>
-                        <p>Gráfico interactivo creado con Plotly.js</p>
+                        <p>Desarrollado por: Santiago Quiñones - Docente Investigador</p>
                     </div>
                 </div>
                 
@@ -1071,7 +655,7 @@ class GradienteAlgorithm(QgsProcessingAlgorithm):
                         modeBarButtonsToRemove: ['lasso2d', 'select2d'],
                         toImageButtonOptions: {{
                             format: 'png',
-                            filename: 'gradiente_perfil_v4',
+                            filename: 'gradiente_perfil_v2',
                             height: 600,
                             width: 1200,
                             scale: 2
@@ -1086,27 +670,20 @@ class GradienteAlgorithm(QgsProcessingAlgorithm):
             """
             
             # Determinar ubicación de salida
-            if archivo_salida and archivo_salida != 'TEMPORARY_OUTPUT':
-                if not archivo_salida.lower().endswith('.html'):
-                    archivo_salida += '.html'
-                ruta_html = archivo_salida
-            else:
-                from pathlib import Path
-                documentos = Path.home() / "Documents" / "Indices_Morfologicos" / "Reportes"
-                documentos.mkdir(parents=True, exist_ok=True)
-                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                ruta_html = str(documentos / f"reporte_gradiente_v4_interactivo_{timestamp}.html")
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            temp_dir = tempfile.gettempdir()
+            ruta_html = os.path.join(temp_dir, f"reporte_gradiente_v2_temporal_{timestamp}.html")
             
             with open(ruta_html, 'w', encoding='utf-8') as f:
                 f.write(html_content)
             
             # Abrir reporte en navegador
             webbrowser.open(f"file://{ruta_html}")
-            feedback.pushInfo(f"📄 V4.0: Reporte HTML interactivo generado: {ruta_html}")
+            feedback.pushInfo(f"V2.0: Reporte HTML interactivo generado: {ruta_html}")
                 
         except Exception as e:
-            feedback.reportError(f"V4.0: Error generando reporte HTML: {str(e)}")
-    
+            feedback.reportError(f"V2.0: Error generando reporte HTML: {str(e)}")
+            
     def _generar_interpretacion_html(self, estadisticas):
         """Genera interpretación automática en formato HTML"""
         try:
@@ -1160,77 +737,14 @@ class GradienteAlgorithm(QgsProcessingAlgorithm):
         except Exception:
             return "<p>No se pudo generar interpretación automática. Consulte las estadísticas numéricas para el análisis manual.</p>"
     
-    def _crear_texto_estadisticas(self, estadisticas):
-        """Crea texto formateado de estadísticas para layout"""
-        if "error" in estadisticas:
-            return "Error en estadísticas V4.0"
-        
-        texto = f"""ESTADÍSTICAS V4.0
-
-Puntos: {estadisticas.get('n_puntos', 0)}
-Distancia: {estadisticas.get('distancia_total', 0):.2f} m
-Desnivel: {estadisticas.get('desnivel_total', 0):.2f} m
-
-GRADIENTE (SL-K):
-Promedio: {estadisticas.get('gradiente_promedio', 0):.6f}
-Máximo: {estadisticas.get('gradiente_maximo', 0):.6f}
-Mínimo: {estadisticas.get('gradiente_minimo', 0):.6f}
-
-PENDIENTE:
-{estadisticas.get('pendiente_promedio_pct', 0):.2f}%
-
-{estadisticas.get('fecha_analisis', 'N/A')}"""
-        
-        return texto
-    
-    def _generar_reporte_detallado(self, estadisticas, archivo_salida, feedback):
-        """Genera reporte estadístico detallado en archivo de texto"""
-        try:
-            if archivo_salida and archivo_salida != 'TEMPORARY_OUTPUT':
-                archivo_reporte = archivo_salida.replace('.png', '_reporte_v4.txt').replace('.pdf', '_reporte_v4.txt')
-            else:
-                from pathlib import Path
-                documentos = Path.home() / "Documents" / "Indices_Morfologicos" / "Reportes"
-                documentos.mkdir(parents=True, exist_ok=True)
-                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                archivo_reporte = str(documentos / f"reporte_estadistico_v4_{timestamp}.txt")
-            
-            with open(archivo_reporte, 'w', encoding='utf-8') as f:
-                f.write("="*80 + "\n")
-                f.write("REPORTE GRADIENTE LONGITUDINAL V4.0\n")
-                f.write("Universidad Técnica Particular de Loja - UTPL\n")
-                f.write("="*80 + "\n\n")
-                f.write(f"Fecha: {estadisticas.get('fecha_analisis', 'N/A')}\n\n")
-                
-                f.write("ESTADÍSTICAS GENERALES:\n")
-                f.write("-"*40 + "\n")
-                f.write(f"Puntos procesados: {estadisticas.get('n_puntos', 0)}\n")
-                f.write(f"Distancia total: {estadisticas.get('distancia_total', 0):.2f} m\n")
-                f.write(f"Desnivel total: {estadisticas.get('desnivel_total', 0):.2f} m\n\n")
-                
-                f.write("ANÁLISIS DE GRADIENTE (SL-K):\n")
-                f.write("-"*40 + "\n")
-                f.write(f"Promedio: {estadisticas.get('gradiente_promedio', 0):.8f}\n")
-                f.write(f"Máximo: {estadisticas.get('gradiente_maximo', 0):.8f}\n")
-                f.write(f"Mínimo: {estadisticas.get('gradiente_minimo', 0):.8f}\n")
-                f.write(f"Pendiente promedio: {estadisticas.get('pendiente_promedio_pct', 0):.4f}%\n\n")
-                
-                f.write("="*80 + "\n")
-                f.write("Fin del reporte V4.0\n")
-            
-            feedback.pushInfo(f"📄 V4.0: Reporte detallado: {archivo_reporte}")
-            
-        except Exception as e:
-            feedback.reportError(f"V4.0: Error generando reporte: {str(e)}")
-    
     def _mostrar_estadisticas(self, estadisticas, feedback):
         """Muestra estadísticas en el log de procesamiento"""
         if "error" in estadisticas:
-            feedback.reportError("V4.0: No se pudieron calcular estadísticas válidas")
+            feedback.reportError("V2.0: No se pudieron calcular estadísticas válidas")
             return
         
         feedback.pushInfo("=" * 60)
-        feedback.pushInfo("📊 ESTADÍSTICAS DEL ANÁLISIS V4.0")
+        feedback.pushInfo("Estadísticas del Análisis V2.0 - Sistema Temporal Nativo")
         feedback.pushInfo("=" * 60)
         feedback.pushInfo(f"Puntos procesados: {estadisticas['n_puntos']}")
         feedback.pushInfo(f"Distancia total: {estadisticas['distancia_total']:.2f} m")
@@ -1249,10 +763,10 @@ PENDIENTE:
         feedback.pushInfo("=" * 60)
     
     def name(self):
-        return 'gradiente_v4'
+        return 'gradiente_v2_temporal'
         
     def displayName(self):
-        return self.tr('Calcular Gradiente V4.0 🚀')
+        return self.tr('Calcular Gradiente V2.0')
         
     def group(self):
         return self.tr('Índices Morfológicos')
@@ -1262,39 +776,40 @@ PENDIENTE:
         
     def shortHelpString(self):
         return self.tr('''
-        <h3>🚀 Cálculo de Gradiente Longitudinal (SL-K) - VERSIÓN 2.0</h3>
+        <h3>Análisis de Gradiente Longitudinal de Ríos (SL-K)</h3>
         
-        <p><b>Versión mejorada sin parámetros de salida problemáticos.</b><br>
-        Calcula el gradiente longitudinal de ríos usando el índice SL-K y crea 
-        automáticamente una nueva capa independiente.</p>
+        <p>Calcula el índice de gradiente longitudinal SL-K para análisis geomorfológico de perfiles fluviales. Útil para detectar anomalías tectónicas, cambios litológicos y procesos erosivos activos en cuencas hidrográficas.</p>
         
-        <h4>✨ Nuevas características V2.0:</h4>
+        <h4>Funcionalidades:</h4>
         <ul>
-        <li><b>🔧 Sin errores de parameterAsSink:</b> Creación directa de archivos</li>
-        <li><b>📁 Carpetas organizadas:</b> Resultados en Documents/Indices_Morfologicos/</li>
-        <li><b>🎯 Carga automática:</b> Nueva capa agregada al proyecto</li>
-        <li><b>🖼️ Múltiples visualizaciones:</b> Interactiva, Layout, Archivo, HTML</li>
-        <li><b>📊 Reportes avanzados:</b> Estadísticas detalladas y HTML</li>
+        <li><b>Cálculo automático del índice SL-K</b> a partir de puntos del perfil longitudinal</li>
+        <li><b>Análisis estadístico completo</b> con gradientes normalizados y métricas de variabilidad</li>
+        <li><b>Reporte HTML interactivo</b> con gráficos dinámicos del perfil y gradiente</li>
+        <li><b>Interpretación geomorfológica automática</b> de los resultados obtenidos</li>
         </ul>
         
-        <h4>📋 Datos de entrada:</h4>
+        <h4>Datos requeridos:</h4>
         <ul>
-        <li><b>Puntos del río:</b> Capa con campos X, Y, Z (ordenamiento automático)</li>
+        <li><b>Capa de puntos del río:</b> Debe contener coordenadas X, Y y elevación Z</li>
+        <li><b>Campos necesarios:</b> POINT_X/X, POINT_Y/Y, Z/elevation (detección automática)</li>
         </ul>
         
-        <h4>📈 Campos de salida:</h4>
+        <h4>Resultados generados:</h4>
         <ul>
-        <li><b>SLK:</b> Índice de gradiente calculado</li>
-        <li><b>DIST_ACUM:</b> Distancia acumulada desde origen</li>
-        <li><b>P_MEDIO:</b> Punto medio entre segmentos</li>
-        <li><b>SLK_NORM:</b> Gradiente normalizado por media</li>
-        <li><b>ORDEN_RIO:</b> Orden secuencial desde cabecera</li>
-        <li><b>PENDIENTE:</b> Pendiente en porcentaje</li>
+        <li><b>SLK:</b> Valor del índice de gradiente longitudinal</li>
+        <li><b>DIST_ACUM:</b> Distancia acumulada desde la cabecera</li>
+        <li><b>P_MEDIO:</b> Punto medio del segmento</li>
+        <li><b>SLK_NORM:</b> Gradiente normalizado respecto a la media</li>
+        <li><b>ORDEN_RIO:</b> Secuencia ordenada desde cabecera a desembocadura</li>
+        <li><b>PENDIENTE:</b> Pendiente del segmento expresada en porcentaje</li>
         </ul>
         
-        <p><i>🎓 Universidad Técnica Particular de Loja - UTPL<br>
-        Departamento de Ingeniería Civil <br>
-        Desarrollado por: Santiago Quiñones</i></p>
+        <h4>Aplicaciones:</h4>
+        <p>Análisis de actividad tectónica, estudios de incisión fluvial, caracterización 
+        geomorfológica de cuencas, y evaluación de procesos erosivos en ríos.</p>
+        
+        <p><i>Universidad Técnica Particular de Loja - UTPL<br>
+        Departamento de Ingeniería Civil</i></p>
         ''')
         
     def tr(self, string):
