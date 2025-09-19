@@ -141,7 +141,7 @@ Departamento de Ingeniería Civil
 
 ## Versiones
 
-- **v1.0** (2025-06-29): Versión inicial
+- **v2.0** (2025-06-29): Versión inicial
   - Algoritmo de cálculo de elongación
   - Algoritmo de cálculo de gradiente
   - Interfaz integrada en QGIS
