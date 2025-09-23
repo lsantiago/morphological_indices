@@ -11,6 +11,14 @@ Este plugin convierte y adapta las herramientas desarrolladas originalmente para
 - **Visualización Integrada**: Generación automática de gráficos y reportes
 - **Validación Automática**: Verificación de datos de entrada y formatos
 
+## Archivos de ejemplo
+
+Puedes encontrar archivos de ejemplo para practicar el cálculo de elongación y gradiente en el siguiente enlace:
+
+**[📁 Archivos de ejemplo - Google Drive](https://drive.google.com/drive/folders/1iaC3_CPA62TPP22A2cG7knSvwNTzoYLq?usp=sharing)**
+
+Los archivos incluyen datos de cuencas hidrográficas y perfiles de ríos listos para usar con el plugin.
+
 ## Características principales
 
 ### Cálculo de Elongación
